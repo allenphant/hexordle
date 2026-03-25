@@ -35,7 +35,8 @@ function verifyDiscordSignature(signature, timestamp, rawBody) {
 // Must be registered BEFORE express.json() so we get the raw body for sig verification.
 // This endpoint handles:
 //   1. PING (type 1) — Discord verifies our endpoint is live
-//   2. Button click "launch_hexordle" (type 3) — responds with LAUNCH_ACTIVITY (type 12)
+//   2. Slash command /hexordle (type 2) — replies with a Launch button
+//   3. Button click "launch_hexordle" (type 3) — responds with LAUNCH_ACTIVITY (type 12)
 app.post(
   "/api/interactions",
   express.raw({ type: "application/json" }),
@@ -49,12 +50,37 @@ app.post(
 
     const body = JSON.parse(req.body.toString());
 
-    // Type 1 = PING — Discord sends this when you first save the Interactions URL
+    // Type 1 = PING — Discord verifies our endpoint is live
     if (body.type === 1) {
       return res.json({ type: 1 });
     }
 
-    // Type 3 = MESSAGE_COMPONENT (button click)
+    // Type 2 = APPLICATION_COMMAND — user typed /hexordle in any channel
+    // Respond with an ephemeral message containing a Launch button
+    if (body.type === 2 && body.data?.name === "hexordle") {
+      return res.json({
+        type: 4, // CHANNEL_MESSAGE_WITH_SOURCE
+        data: {
+          flags: 64, // ephemeral — only visible to the user who ran the command
+          content: "Ready to play Hexordle?",
+          components: [
+            {
+              type: 1, // ACTION_ROW
+              components: [
+                {
+                  type: 2,  // BUTTON
+                  style: 1, // PRIMARY (blue)
+                  label: "🎮 Play Hexordle",
+                  custom_id: "launch_hexordle",
+                },
+              ],
+            },
+          ],
+        },
+      });
+    }
+
+    // Type 3 = MESSAGE_COMPONENT (button click) — launch the Activity
     if (body.type === 3 && body.data?.custom_id === "launch_hexordle") {
       // Type 12 = LAUNCH_ACTIVITY — tells Discord to open the game
       return res.json({ type: 12 });
@@ -301,42 +327,58 @@ function getRoomSnapshot(room, excludeUserId) {
   return players;
 }
 
-// ─── Register Discord Entry Point Command (on startup) ────────────────────────
-// This makes Hexordle appear in the App Launcher (🚀) in ANY channel or DM.
-// handler: 2 = DISCORD_LAUNCH_ACTIVITY (Discord handles the launch automatically)
-async function registerEntryPointCommand() {
+// ─── Register Discord Commands (on startup) ───────────────────────────────────
+// Registers two commands:
+//   1. PRIMARY_ENTRY_POINT (type 4) — appears in the Activity Launcher (🎮) everywhere
+//   2. CHAT_INPUT (type 1)          — /hexordle slash command in any text channel
+async function registerCommands() {
   const clientId = process.env.VITE_CLIENT_ID;
   const botToken = process.env.BOT_TOKEN;
   if (!botToken || !clientId) return;
 
-  try {
-    const res = await fetch(
-      `https://discord.com/api/v10/applications/${clientId}/commands`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bot ${botToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name: "hexordle",
-          description: "Play Hexordle — the 6-letter word game",
-          type: 4,        // PRIMARY_ENTRY_POINT
-          handler: 2,     // DISCORD_LAUNCH_ACTIVITY (Discord handles launch automatically)
-          integration_types: [0, 1], // 0 = Guild install, 1 = User install
-          contexts: [0, 1, 2],       // 0 = Guild, 1 = Bot DM, 2 = DM / Group DM
-        }),
-      }
-    );
+  const headers = {
+    Authorization: `Bot ${botToken}`,
+    "Content-Type": "application/json",
+  };
+  const url = `https://discord.com/api/v10/applications/${clientId}/commands`;
 
-    if (res.ok) {
-      console.log("[Bot] Entry point command registered — Hexordle available everywhere");
-    } else {
-      const err = await res.json();
-      console.error("[Bot] Failed to register entry point command:", err);
+  const commands = [
+    {
+      name: "hexordle",
+      description: "Play Hexordle — the 6-letter word game",
+      type: 4,        // PRIMARY_ENTRY_POINT — Activity Launcher entry
+      handler: 2,     // DISCORD_LAUNCH_ACTIVITY
+      integration_types: [0, 1],
+      contexts: [0, 1, 2],
+    },
+    {
+      name: "hexordle",
+      description: "Play Hexordle — the 6-letter word game",
+      type: 1,        // CHAT_INPUT — slash command
+      integration_types: [0, 1],
+      contexts: [0, 1, 2],
+    },
+  ];
+
+  for (const cmd of commands) {
+    try {
+      const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(cmd) });
+      if (res.ok) {
+        const label = cmd.type === 4 ? "Activity Launcher entry" : "/hexordle slash command";
+        console.log(`[Bot] Registered: ${label}`);
+      } else {
+        const err = await res.json();
+        // 50223 = already registered (harmless on redeploy), 50032 = duplicate name+type
+        if (err.code === 50223 || err.code === 50032) {
+          const label = cmd.type === 4 ? "Activity Launcher entry" : "/hexordle slash command";
+          console.log(`[Bot] Already registered (ok): ${label}`);
+        } else {
+          console.error("[Bot] Failed to register command:", err);
+        }
+      }
+    } catch (err) {
+      console.error("[Bot] Error registering command:", err);
     }
-  } catch (err) {
-    console.error("[Bot] Error registering entry point command:", err);
   }
 }
 
@@ -350,5 +392,5 @@ app.get("*", (_req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
-  registerEntryPointCommand();
+  registerCommands();
 });
