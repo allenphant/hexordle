@@ -4,6 +4,7 @@ import { createServer } from "http";
 import { WebSocketServer } from "ws";
 import { fileURLToPath } from "url";
 import { dirname, join, resolve } from "path";
+import nacl from "tweetnacl";
 
 const __filename = fileURLToPath(import.meta.url);
 const __rootdir = resolve(dirname(__filename), "../../..");
@@ -14,6 +15,56 @@ const server = createServer(app);
 const wss = new WebSocketServer({ server });
 const PORT = process.env.PORT ?? 3001;
 
+// ─── Discord Signature Verification ──────────────────────────────────────────
+// Discord signs every interaction request so we can verify it's genuine.
+function verifyDiscordSignature(signature, timestamp, rawBody) {
+  try {
+    const publicKey = process.env.DISCORD_PUBLIC_KEY;
+    if (!publicKey || !signature || !timestamp) return false;
+    return nacl.sign.detached.verify(
+      Buffer.concat([Buffer.from(timestamp), rawBody]),
+      Buffer.from(signature, "hex"),
+      Buffer.from(publicKey, "hex")
+    );
+  } catch {
+    return false;
+  }
+}
+
+// ─── Discord Interactions Endpoint ───────────────────────────────────────────
+// Must be registered BEFORE express.json() so we get the raw body for sig verification.
+// This endpoint handles:
+//   1. PING (type 1) — Discord verifies our endpoint is live
+//   2. Button click "launch_hexordle" (type 3) — responds with LAUNCH_ACTIVITY (type 12)
+app.post(
+  "/api/interactions",
+  express.raw({ type: "application/json" }),
+  (req, res) => {
+    const signature = req.headers["x-signature-ed25519"];
+    const timestamp = req.headers["x-signature-timestamp"];
+
+    if (!verifyDiscordSignature(signature, timestamp, req.body)) {
+      return res.status(401).send("Invalid signature");
+    }
+
+    const body = JSON.parse(req.body.toString());
+
+    // Type 1 = PING — Discord sends this when you first save the Interactions URL
+    if (body.type === 1) {
+      return res.json({ type: 1 });
+    }
+
+    // Type 3 = MESSAGE_COMPONENT (button click)
+    if (body.type === 3 && body.data?.custom_id === "launch_hexordle") {
+      // Type 12 = LAUNCH_ACTIVITY — tells Discord to open the game
+      return res.json({ type: 12 });
+    }
+
+    res.status(404).json({ error: "Unknown interaction" });
+  }
+);
+
+// Global JSON body parser for all other routes
 app.use(express.json());
 
 // ─── Health Check ────────────────────────────────────────────────────────────
@@ -76,9 +127,11 @@ app.post("/api/post-result", async (req, res) => {
     title: `Hexordle #${dayNumber} — ${score}/6`,
     description: grid,
     color: won ? 0x538d4e : 0x3a3a3c,
-    footer: { text: "Play Hexordle in your Voice Channel" },
+    footer: { text: "Click ▶ Play now! to join the game" },
   };
 
+  // Interaction button (style 1 = blue) — clicking this triggers our /api/interactions
+  // endpoint, which responds with type 12 (LAUNCH_ACTIVITY) to open the game
   const components = channelId
     ? [
         {
@@ -86,11 +139,9 @@ app.post("/api/post-result", async (req, res) => {
           components: [
             {
               type: 2,
-              style: 5, // LINK button
-              label: "Play now!",
-              url: guildId
-                ? `https://discord.com/channels/${guildId}/${channelId}`
-                : `https://discord.com/channels/@me/${channelId}`,
+              style: 1, // PRIMARY (blue button, triggers interaction)
+              label: "▶ Play now!",
+              custom_id: "launch_hexordle",
             },
           ],
         },
@@ -124,7 +175,7 @@ app.post("/api/post-result", async (req, res) => {
 });
 
 // ─── Word Validation (proxied + cached) ──────────────────────────────────────
-const wordCache = new Map(); // word → boolean
+const wordCache = new Map();
 
 app.get("/api/validate", async (req, res) => {
   const word = (req.query.word ?? "").toLowerCase();
@@ -140,13 +191,11 @@ app.get("/api/validate", async (req, res) => {
     wordCache.set(word, valid);
     res.json({ valid });
   } catch {
-    // network failure → optimistically allow
     res.json({ valid: true });
   }
 });
 
 // ─── WebSocket (Spectator Sync) ───────────────────────────────────────────────
-// rooms: Map<instanceId, Map<userId, { ws, displayName, evaluations[] }>>
 const rooms = new Map();
 
 wss.on("connection", (ws) => {
@@ -167,16 +216,10 @@ wss.on("connection", (ws) => {
 
         room.set(userId, { ws, displayName, evaluations: [] });
 
-        // Send current room state to the new player
         const roomSnapshot = getRoomSnapshot(room, userId);
         ws.send(JSON.stringify({ type: "room_state", players: roomSnapshot }));
 
-        // Announce join to others
-        broadcast(room, userId, {
-          type: "player_joined",
-          userId,
-          displayName,
-        });
+        broadcast(room, userId, { type: "player_joined", userId, displayName });
       }
 
       if (msg.type === "guess" && instanceId && userId) {
@@ -186,7 +229,6 @@ wss.on("connection", (ws) => {
         const player = room.get(userId);
         if (!player) return;
 
-        // Append new evaluation row (colors only, no letters)
         player.evaluations.push(msg.evaluation);
 
         broadcast(room, userId, {
@@ -207,10 +249,8 @@ wss.on("connection", (ws) => {
     if (!room) return;
 
     room.delete(userId);
-
     broadcast(room, null, { type: "player_left", userId });
 
-    // Clean up empty rooms
     if (room.size === 0) rooms.delete(instanceId);
   });
 });
@@ -219,9 +259,7 @@ function broadcast(room, excludeUserId, message) {
   const payload = JSON.stringify(message);
   for (const [uid, player] of room) {
     if (uid === excludeUserId) continue;
-    if (player.ws.readyState === 1 /* OPEN */) {
-      player.ws.send(payload);
-    }
+    if (player.ws.readyState === 1) player.ws.send(payload);
   }
 }
 
@@ -229,13 +267,48 @@ function getRoomSnapshot(room, excludeUserId) {
   const players = [];
   for (const [uid, player] of room) {
     if (uid === excludeUserId) continue;
-    players.push({
-      userId: uid,
-      displayName: player.displayName,
-      evaluations: player.evaluations,
-    });
+    players.push({ userId: uid, displayName: player.displayName, evaluations: player.evaluations });
   }
   return players;
+}
+
+// ─── Register Discord Entry Point Command (on startup) ────────────────────────
+// This makes Hexordle appear in the App Launcher (🚀) in ANY channel or DM.
+// handler: 2 = DISCORD_LAUNCH_ACTIVITY (Discord handles the launch automatically)
+async function registerEntryPointCommand() {
+  const clientId = process.env.VITE_CLIENT_ID;
+  const botToken = process.env.BOT_TOKEN;
+  if (!botToken || !clientId) return;
+
+  try {
+    const res = await fetch(
+      `https://discord.com/api/v10/applications/${clientId}/commands`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bot ${botToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: "hexordle",
+          description: "Play Hexordle — the 6-letter word game",
+          type: 4,        // PRIMARY_ENTRY_POINT
+          handler: 2,     // DISCORD_LAUNCH_ACTIVITY (Discord handles launch automatically)
+          integration_types: [0, 1], // 0 = Guild install, 1 = User install
+          contexts: [0, 1, 2],       // 0 = Guild, 1 = Bot DM, 2 = DM / Group DM
+        }),
+      }
+    );
+
+    if (res.ok) {
+      console.log("[Bot] Entry point command registered — Hexordle available everywhere");
+    } else {
+      const err = await res.json();
+      console.error("[Bot] Failed to register entry point command:", err);
+    }
+  } catch (err) {
+    console.error("[Bot] Error registering entry point command:", err);
+  }
 }
 
 // ─── Serve Built Client ───────────────────────────────────────────────────────
@@ -248,4 +321,5 @@ app.get("*", (_req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
+  registerEntryPointCommand();
 });

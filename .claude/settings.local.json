@@ -26,7 +26,20 @@
       "Bash(curl -L \"https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe\" -o \"/c/nvm4w/nodejs/cloudflared.exe\")",
       "Bash(/c/nvm4w/nodejs/cloudflared.exe --version 2>&1)",
       "Bash(\"/c/Users/raging/AppData/Local/Microsoft/WindowsApps/cloudflared.exe\" --version 2>&1)",
-      "WebFetch(domain:community.fly.io)"
+      "WebFetch(domain:community.fly.io)",
+      "Bash(curl -s https://discord.com/developers/docs/interactions/message-components)",
+      "WebFetch(domain:discord-api-types.dev)",
+      "WebFetch(domain:dev.to)",
+      "WebFetch(domain:deepwiki.com)",
+      "WebFetch(domain:gist.github.com)",
+      "WebFetch(domain:support.discord.com)",
+      "WebFetch(domain:support-apps.discord.com)",
+      "WebFetch(domain:discord-media.com)",
+      "WebFetch(domain:blog.waveplay.com)",
+      "WebFetch(domain:discord.js.org)",
+      "WebFetch(domain:support-dev.discord.com)",
+      "WebFetch(domain:www.mava.app)",
+      "WebFetch(domain:faq.dots.community)"
     ]
   }
 }
