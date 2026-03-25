@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:discord.com)",
+      "WebFetch(domain:docs.discord.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(npm --version)",
+      "WebFetch(domain:www.npmjs.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(npm install:*)",
+      "Bash(cmd.exe /c \"where npm\")",
+      "Bash(cmd.exe /c \"where node\")",
+      "Bash(export PATH=\"/c/nvm4w/nodejs:$PATH\")",
+      "Bash(echo:*)",
+      "Read(//c/nvm4w/nodejs/**)",
+      "Read(//c/Users/raging/AppData/Local/nvm//**)",
+      "Bash(/c/nvm4w/nodejs/node node_modules/.bin/tsc --project packages/client/tsconfig.json --noEmit 2>&1)",
+      "Bash(/c/nvm4w/nodejs/node ../../node_modules/typescript/bin/tsc --noEmit)",
+      "Bash(/c/nvm4w/nodejs/node node_modules/typescript/bin/tsc --project packages/client/tsconfig.json --noEmit 2>&1)",
+      "Bash(/c/nvm4w/nodejs/node packages/client/node_modules/typescript/bin/tsc --project packages/client/tsconfig.json --noEmit 2>&1)",
+      "Bash(/c/nvm4w/nodejs/node /c/Users/raging/Desktop/Vibe_coding/Hexordle/node_modules/typescript/lib/tsc.js --project /c/Users/raging/Desktop/Vibe_coding/Hexordle/packages/client/tsconfig.json --noEmit 2>&1)",
+      "Bash(curl --version)",
+      "Bash(powershell.exe -Command 'Get-Command curl')",
+      "Bash(curl -L \"https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe\" -o \"/c/Users/raging/AppData/Local/Microsoft/WindowsApps/cloudflared.exe\")",
+      "Bash(curl -L \"https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe\" -o \"/c/nvm4w/nodejs/cloudflared.exe\")",
+      "Bash(/c/nvm4w/nodejs/cloudflared.exe --version 2>&1)",
+      "Bash(\"/c/Users/raging/AppData/Local/Microsoft/WindowsApps/cloudflared.exe\" --version 2>&1)",
+      "WebFetch(domain:community.fly.io)"
+    ]
+  }
+}

@@ -1,0 +1,29 @@
+# Fly.io configuration for Hexordle
+# Docs: https://fly.io/docs/reference/configuration/
+
+app = "hexordle"
+primary_region = "nrt"   # Tokyo — closest to Taiwan
+
+[build]
+  [build.args]
+    VITE_CLIENT_ID = "1485992507811827733"
+
+[http_service]
+  internal_port = 3001
+  force_https = true
+  auto_stop_machines = false   # Keep running for low-latency gameplay
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  # WebSocket support
+  [[http_service.checks]]
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/api/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

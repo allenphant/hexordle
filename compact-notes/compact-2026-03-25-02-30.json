@@ -1,0 +1,139 @@
+{
+  "L0": "建立 Hexordle Discord Activity 完成、正在排除 OAuth2 redirect_uri 錯誤（進行中）",
+  "compact_version": "2.0",
+  "timestamp": "2026-03-25T02:30:00+08:00",
+  "project": {
+    "name": "Hexordle",
+    "path": "C:\\Users\\raging\\Desktop\\Vibe_coding\\Hexordle",
+    "tech_stack": ["TypeScript", "React", "Vite", "Express", "WebSocket", "Discord Embedded App SDK"],
+    "description": "Discord Activity 形式的 6 字母 Wordle 猜字遊戲，含即時多人觀戰功能"
+  },
+  "session_goal": "從零建立 Hexordle Discord Activity 並在 Discord 中成功跑起來",
+  "completed": [
+    {
+      "task": "建立完整專案骨架（monorepo）",
+      "files": [
+        "package.json",
+        "packages/client/package.json",
+        "packages/server/package.json",
+        ".env",
+        ".gitignore"
+      ],
+      "detail": "npm workspace + npm-run-all2，client 跑 5173，server 跑 3001"
+    },
+    {
+      "task": "實作遊戲核心邏輯",
+      "files": [
+        "packages/client/src/lib/evaluate.ts",
+        "packages/client/src/lib/share.ts",
+        "packages/client/src/lib/words.ts",
+        "packages/client/src/hooks/useGameState.ts",
+        "packages/client/src/hooks/useStats.ts"
+      ],
+      "detail": "兩輪掃描猜測評估算法、每日單字、localStorage 持久化、統計"
+    },
+    {
+      "task": "實作所有 UI 元件",
+      "files": [
+        "packages/client/src/components/Game.tsx",
+        "packages/client/src/components/Board.tsx",
+        "packages/client/src/components/Row.tsx",
+        "packages/client/src/components/Tile.tsx",
+        "packages/client/src/components/Keyboard.tsx",
+        "packages/client/src/components/ResultModal.tsx",
+        "packages/client/src/components/StatsModal.tsx"
+      ],
+      "detail": "6x6 盤面、QWERTY 鍵盤、結果彈窗含倒計時"
+    },
+    {
+      "task": "實作多人觀戰功能",
+      "files": [
+        "packages/client/src/hooks/useMultiplayer.ts",
+        "packages/client/src/components/SpectatorPanel.tsx",
+        "packages/server/src/app.js"
+      ],
+      "detail": "WebSocket 以 instanceId 分房，只廣播格子顏色不傳字母"
+    },
+    {
+      "task": "完整樣式與動畫",
+      "files": ["packages/client/src/styles/index.css"],
+      "detail": "深色主題、Tile 翻轉/搖晃/彈跳動畫、Toast 通知、響應式"
+    },
+    {
+      "task": "Discord SDK 接入（OAuth 認證流程）",
+      "files": [
+        "packages/client/src/discordSdk.ts",
+        "packages/client/src/App.tsx"
+      ],
+      "detail": "ready → authorize → fetch /.proxy/api/token → authenticate"
+    },
+    {
+      "task": "安裝 cloudflared 並設定 Developer Portal",
+      "files": [],
+      "detail": "下載至 WindowsApps，設定 URL mapping 和 Activities，確認 discordsays.com 可連線"
+    }
+  ],
+  "in_progress": [
+    {
+      "task": "修復 OAuth2 token exchange 缺少 redirect_uri 的錯誤",
+      "status": "已修改 server 加入 redirect_uri，等待使用者在 Developer Portal 新增 redirect URI 後測試",
+      "next_step": "Developer Portal → OAuth2 → Redirects 新增 https://1485992507811827733.discordsays.com，然後重開 Activity 測試",
+      "blockers": "需要使用者手動在 Developer Portal 操作"
+    }
+  ],
+  "failed_approaches": [
+    {
+      "attempt": "allowedHosts: \"all\" (字串) 解決 Vite blocked host 問題",
+      "why_failed": "Vite 6 需要 true（布林值）不是字串 \"all\"",
+      "lesson": "Vite 6 的 allowedHosts 要用 true 而非 \"all\""
+    },
+    {
+      "attempt": "在 Chrome 瀏覽器對 localhost:5173 開 DevTools 偵錯 Activity",
+      "why_failed": "那是瀏覽器直接開的分頁，不是 Discord Activity iframe，frame_id 當然是空的",
+      "lesson": "DevTools 要從 Discord Activity 視窗內部開（右鍵 Inspect），不是另開瀏覽器"
+    },
+    {
+      "attempt": "不傳 redirect_uri 的 OAuth2 token exchange",
+      "why_failed": "Discord API 現在要求 token exchange 必須帶 redirect_uri",
+      "lesson": "Discord Activity token exchange 需要 redirect_uri: https://{client_id}.discordsays.com"
+    },
+    {
+      "attempt": "用免費 cloudflare tunnel（無帳號）做開發",
+      "why_failed": "每次重啟都換 URL，要頻繁更新 Developer Portal 的 URL mapping",
+      "lesson": "應該申請 Cloudflare 帳號設定固定名稱 tunnel，避免 URL 不斷改變"
+    }
+  ],
+  "key_decisions": [
+    {
+      "decision": "客戶端計算每日單字（不走 server）",
+      "reason": "詞庫本就公開，省去網路延遲，架構更簡單",
+      "alternatives_rejected": ["server-side 每日單字 API"]
+    },
+    {
+      "decision": "單人遊玩 + 多人觀戰（不傳字母只傳顏色）",
+      "reason": "使用者要求，保護答案隱私",
+      "alternatives_rejected": ["純單人", "競速多人"]
+    },
+    {
+      "decision": "用 discordsays.com 作為固定 redirect_uri",
+      "reason": "與 App ID 綁定，不會隨 tunnel URL 變動",
+      "alternatives_rejected": ["用 tunnel URL 當 redirect_uri（每次重啟就失效）"]
+    }
+  ],
+  "user_preferences": [
+    "開發過程中的溝通和計畫用中文，程式碼和 UI 全英文",
+    "想要固定名稱的 Cloudflare tunnel（申請帳號）",
+    "Activity 要能在頻道發訊息（嵌入式 Activity，不是純文字 bot）"
+  ],
+  "key_files": {
+    "packages/client/src/discordSdk.ts": "Discord SDK 初始化與 OAuth 認證流程",
+    "packages/server/src/app.js": "Express + WebSocket server，含 OAuth token exchange（POST /api/token）",
+    "packages/client/src/hooks/useGameState.ts": "遊戲核心邏輯：猜測流程、動畫時序、localStorage 持久化",
+    "packages/client/src/lib/evaluate.ts": "兩輪掃描猜測評估算法，正確處理重複字母",
+    "packages/client/src/lib/words.ts": "答案詞庫 + 每日單字算法",
+    "packages/client/vite.config.ts": "Vite 設定：allowedHosts: true, proxy /api → 3001, HMR tunnel host",
+    ".env": "VITE_CLIENT_ID=1485992507811827733（已填入真實值）",
+    "compact-notes/compact-2026-03-25-02-30.json": "本次 compact 備忘錄"
+  },
+  "handover_context": "Hexordle 全部程式碼已完成，Discord Activity 可成功在語音頻道啟動並透過 discordsays.com 載入。目前卡在 OAuth2 token exchange 的 redirect_uri 錯誤，需要使用者在 Developer Portal（OAuth2 → Redirects）新增 https://1485992507811827733.discordsays.com，然後重開 Activity 即可進入下一步（遊戲實際可玩）。另需設定 Cloudflare 固定名稱 tunnel 解決每次重啟換 URL 的問題。"
+}

@@ -1,0 +1,528 @@
+:root {
+  --color-correct: #538d4e;
+  --color-present: #b59f3b;
+  --color-absent: #3a3a3c;
+  --color-bg: #121213;
+  --color-tile-border-empty: #3a3a3c;
+  --color-tile-border-tbd: #565758;
+  --color-text: #ffffff;
+  --color-key-bg: #818384;
+  --color-key-text: #ffffff;
+  --color-header-border: #3a3a3c;
+  --tile-size: 58px;
+  --tile-gap: 5px;
+  --key-height: 54px;
+  --header-height: 50px;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  max-height: 100vh;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: "Clear Sans", "Helvetica Neue", Arial, sans-serif;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* ─── Layout ─── */
+.loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  font-size: 1.2rem;
+}
+
+.game {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100vh;
+  max-width: 500px;
+  margin: 0 auto;
+  padding: 0 8px;
+  overflow: hidden;
+}
+
+/* ─── Header ─── */
+.header {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  height: var(--header-height);
+  border-bottom: 1px solid var(--color-header-border);
+  position: relative;
+  flex-shrink: 0;
+}
+
+.header h1 {
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.stats-icon {
+  position: absolute;
+  right: 8px;
+  background: none;
+  border: none;
+  color: var(--color-text);
+  cursor: pointer;
+  font-size: 1.3rem;
+  padding: 4px;
+}
+
+/* ─── Toast ─── */
+.toast {
+  position: absolute;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--color-text);
+  color: var(--color-bg);
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 0.85rem;
+  z-index: 100;
+  animation: toast-in 0.2s ease;
+  pointer-events: none;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(-8px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* ─── Board ─── */
+.board {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tile-gap);
+  padding: 10px 0;
+  flex: 1;
+  min-height: 0;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.row {
+  display: flex;
+  gap: var(--tile-gap);
+}
+
+.row--shake {
+  animation: shake 0.5s ease;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  10%, 50%, 90% { transform: translateX(-4px); }
+  30%, 70% { transform: translateX(4px); }
+}
+
+/* ─── Tiles ─── */
+.tile {
+  width: var(--tile-size);
+  height: var(--tile-size);
+  border: 2px solid var(--color-tile-border-empty);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(var(--tile-size) * 0.5);
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--color-text);
+  position: relative;
+  transition: border-color 0.05s;
+  flex-shrink: 0;
+}
+
+.tile[data-state="tbd"] {
+  border-color: var(--color-tile-border-tbd);
+  animation: pop 0.1s ease;
+}
+
+.tile[data-state="correct"] {
+  background-color: var(--color-correct);
+  border-color: var(--color-correct);
+}
+
+.tile[data-state="present"] {
+  background-color: var(--color-present);
+  border-color: var(--color-present);
+}
+
+.tile[data-state="absent"] {
+  background-color: var(--color-absent);
+  border-color: var(--color-absent);
+}
+
+@keyframes pop {
+  0%   { transform: scale(1); }
+  50%  { transform: scale(1.12); }
+  100% { transform: scale(1); }
+}
+
+/* Flip animation for revealed tiles */
+.tile--reveal {
+  animation: flip var(--reveal-delay, 0ms) step-end forwards,
+             flip-in 0.25s ease calc(var(--reveal-delay, 0ms)) forwards,
+             flip-out 0.25s ease calc(var(--reveal-delay, 0ms) + 0.25s) forwards;
+}
+
+@keyframes flip-in {
+  from { transform: rotateX(0deg); }
+  to   { transform: rotateX(-90deg); }
+}
+
+@keyframes flip-out {
+  from { transform: rotateX(90deg); }
+  to   { transform: rotateX(0deg); }
+}
+
+/* ─── Keyboard ─── */
+.keyboard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  /* extra bottom padding for Discord voice participant overlay (~90px) */
+  padding: 8px 0 96px;
+  width: 100%;
+  flex-shrink: 0;
+}
+
+.keyboard-row {
+  display: flex;
+  justify-content: center;
+  gap: 5px;
+}
+
+.key {
+  height: var(--key-height);
+  min-width: 38px;
+  padding: 0 4px;
+  border: none;
+  border-radius: 4px;
+  background-color: var(--color-key-bg);
+  color: var(--color-key-text);
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  text-transform: uppercase;
+  flex: 1;
+  max-width: 38px;
+  transition: background-color 0.2s ease;
+}
+
+.key--wide {
+  min-width: 58px;
+  max-width: 58px;
+  font-size: 0.7rem;
+}
+
+.key[data-state="correct"] { background-color: var(--color-correct); }
+.key[data-state="present"]  { background-color: var(--color-present); }
+.key[data-state="absent"]   { background-color: var(--color-absent); }
+
+.key:active {
+  filter: brightness(0.85);
+}
+
+/* ─── Result Modal ─── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  animation: fade-in 0.2s ease;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.modal {
+  background: #1a1a1b;
+  border: 1px solid var(--color-absent);
+  border-radius: 12px;
+  padding: 24px;
+  width: 320px;
+  max-width: 90vw;
+  position: relative;
+  animation: slide-up 0.25s ease;
+}
+
+@keyframes slide-up {
+  from { transform: translateY(20px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+.modal-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: none;
+  border: none;
+  color: var(--color-text);
+  font-size: 1rem;
+  cursor: pointer;
+  opacity: 0.6;
+}
+
+.modal-title {
+  text-align: center;
+  font-size: 1.2rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+
+.modal-answer {
+  text-align: center;
+  font-size: 0.95rem;
+  margin-bottom: 16px;
+  opacity: 0.85;
+}
+
+.stats-row {
+  display: flex;
+  justify-content: space-around;
+  margin: 16px 0;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.stat-value {
+  font-size: 1.6rem;
+  font-weight: 700;
+}
+
+.stat-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
+.modal-bottom {
+  display: flex;
+  flex-direction: column;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-absent);
+  gap: 10px;
+}
+
+.modal-timer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.next-word {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.next-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
+.next-countdown {
+  font-size: 1.4rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.share-btn {
+  border: none;
+  border-radius: 6px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 0.15s;
+  white-space: nowrap;
+}
+
+.share-btn:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.share-btn:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+/* Small "Copy" button next to timer */
+.share-btn--copy {
+  background-color: var(--color-absent);
+  color: white;
+  padding: 10px 18px;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Full-width "Share to Channel" button */
+.share-btn--channel {
+  background-color: var(--color-correct);
+  color: white;
+  padding: 14px 24px;
+  font-size: 1rem;
+  width: 100%;
+  text-align: center;
+}
+
+.modal-post-error {
+  font-size: 0.75rem;
+  color: #ff6b6b;
+  text-align: center;
+  margin: 0;
+}
+
+/* ─── Game Main (board + spectator side by side) ─── */
+.game-main {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  flex: 1;
+  justify-content: center;
+}
+
+/* ─── Spectator Panel ─── */
+.spectator-panel {
+  padding-top: 16px;
+  min-width: 140px;
+  max-width: 180px;
+  flex-shrink: 0;
+}
+
+.spectator-title {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.6;
+  margin-bottom: 10px;
+}
+
+.spectator-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.spectator-player {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.spectator-name {
+  font-size: 0.7rem;
+  font-weight: 600;
+  opacity: 0.85;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+}
+
+.spectator-guesses {
+  font-weight: 400;
+  opacity: 0.6;
+}
+
+.mini-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mini-row {
+  display: flex;
+  gap: 2px;
+}
+
+.mini-tile {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--color-tile-border-empty);
+  display: inline-block;
+}
+
+.mini-tile[data-state="correct"] { background-color: var(--color-correct); border-color: var(--color-correct); }
+.mini-tile[data-state="present"] { background-color: var(--color-present); border-color: var(--color-present); }
+.mini-tile[data-state="absent"]  { background-color: var(--color-absent);  border-color: var(--color-absent);  }
+
+/* ─── Responsive — height breakpoints ─── */
+/* Default: tile=58, key=54 → total ~658px needed */
+
+@media (max-height: 660px) {
+  :root { --tile-size: 50px; --key-height: 46px; }
+}
+
+@media (max-height: 580px) {
+  :root { --tile-size: 44px; --tile-gap: 4px; --key-height: 40px; --header-height: 44px; }
+  .header h1 { font-size: 1.4rem; }
+  .board { padding: 6px 0; }
+  .keyboard { padding: 6px 0 96px; gap: 5px; }
+}
+
+@media (max-height: 510px) {
+  :root { --tile-size: 38px; --tile-gap: 3px; --key-height: 34px; --header-height: 38px; }
+  .header h1 { font-size: 1.2rem; }
+  .board { padding: 4px 0; }
+  .keyboard { padding: 4px 0 96px; gap: 4px; }
+}
+
+/* ─── Responsive — width breakpoints ─── */
+/* board needs: 6×tile + 5×gap + 16px padding */
+
+@media (max-width: 420px) {
+  :root { --tile-size: 48px; --tile-gap: 4px; --key-height: 44px; }
+  .key { min-width: 34px; max-width: 34px; }
+  .key--wide { min-width: 52px; max-width: 52px; }
+  .spectator-panel { display: none; }
+}
+
+@media (max-width: 360px) {
+  :root { --tile-size: 42px; --tile-gap: 3px; --key-height: 38px; }
+  .key { min-width: 30px; max-width: 30px; font-size: 0.7rem; }
+  .key--wide { min-width: 46px; max-width: 46px; }
+}
+
+@media (max-width: 310px) {
+  :root { --tile-size: 36px; --tile-gap: 3px; --key-height: 32px; }
+  .key { min-width: 26px; max-width: 26px; font-size: 0.65rem; }
+  .key--wide { min-width: 40px; max-width: 40px; }
+}
+
+/* Hide spectator panel on screens too narrow for both */
+@media (max-width: 500px) {
+  .spectator-panel { display: none; }
+}
