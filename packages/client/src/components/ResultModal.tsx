@@ -126,7 +126,8 @@ export function ResultModal({
         setPosted(true);
       } else {
         const err = await res.json();
-        setPostError(err.error ?? "Failed to post");
+        const detail = err.detail?.message ?? err.detail?.code;
+        setPostError(detail ? `${err.error}: ${detail}` : (err.error ?? "Failed to post"));
       }
     } catch {
       setPostError("Network error");
