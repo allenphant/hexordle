@@ -5,6 +5,8 @@ import { WebSocketServer } from "ws";
 import { fileURLToPath } from "url";
 import { dirname, join, resolve } from "path";
 import nacl from "tweetnacl";
+import pg from "pg";
+const { Pool } = pg;
 
 const __filename = fileURLToPath(import.meta.url);
 const __rootdir = resolve(dirname(__filename), "../../..");
@@ -14,6 +16,27 @@ const app = express();
 const server = createServer(app);
 const wss = new WebSocketServer({ server });
 const PORT = process.env.PORT ?? 3001;
+
+// ─── PostgreSQL ───────────────────────────────────────────────────────────────
+const pool = process.env.DATABASE_URL
+  ? new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } })
+  : null;
+
+async function initDb() {
+  if (!pool) { console.log("[DB] No DATABASE_URL — skipping DB init"); return; }
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_progress (
+      user_id   TEXT NOT NULL,
+      date      TEXT NOT NULL,
+      guesses   JSONB NOT NULL DEFAULT '[]',
+      evaluations JSONB NOT NULL DEFAULT '[]',
+      completed BOOLEAN NOT NULL DEFAULT false,
+      won       BOOLEAN NOT NULL DEFAULT false,
+      PRIMARY KEY (user_id, date)
+    )
+  `);
+  console.log("[DB] Table ready");
+}
 
 // ─── Discord Signature Verification ──────────────────────────────────────────
 // Discord signs every interaction request so we can verify it's genuine.
@@ -95,6 +118,43 @@ app.use(express.json());
 
 // ─── Health Check ────────────────────────────────────────────────────────────
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
+
+// ─── Cross-Device Progress Sync ───────────────────────────────────────────────
+app.get("/api/progress", async (req, res) => {
+  if (!pool) return res.json(null);
+  const { userId, date } = req.query;
+  if (!userId || !date) return res.status(400).json({ error: "userId and date required" });
+  try {
+    const result = await pool.query(
+      "SELECT * FROM user_progress WHERE user_id = $1 AND date = $2",
+      [userId, date]
+    );
+    res.json(result.rows[0] ?? null);
+  } catch (err) {
+    console.error("[DB] Error loading progress:", err);
+    res.json(null);
+  }
+});
+
+app.post("/api/progress", async (req, res) => {
+  if (!pool) return res.json({ ok: true });
+  const { userId, date, guesses, evaluations, completed, won } = req.body;
+  if (!userId || !date) return res.status(400).json({ error: "userId and date required" });
+  try {
+    await pool.query(
+      `INSERT INTO user_progress (user_id, date, guesses, evaluations, completed, won)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (user_id, date) DO UPDATE
+       SET guesses = EXCLUDED.guesses, evaluations = EXCLUDED.evaluations,
+           completed = EXCLUDED.completed, won = EXCLUDED.won`,
+      [userId, date, JSON.stringify(guesses), JSON.stringify(evaluations), completed, won]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[DB] Error saving progress:", err);
+    res.json({ ok: true }); // fail silently — game continues
+  }
+});
 
 // ─── OAuth2 Token Exchange ───────────────────────────────────────────────────
 app.post("/api/token", async (req, res) => {
@@ -392,5 +452,6 @@ app.get("*", (_req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
+  initDb();
   registerCommands();
 });

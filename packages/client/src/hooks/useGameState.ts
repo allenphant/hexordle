@@ -13,6 +13,7 @@ interface SavedGameState {
 }
 
 const STORAGE_KEY = "hexordle-state";
+const TODAY = new Date().toISOString().split("T")[0]; // YYYY-MM-DD (UTC)
 
 function loadSavedState(): SavedGameState | null {
   try {
@@ -32,6 +33,38 @@ function saveState(state: SavedGameState) {
   } catch {
     // ignore storage errors
   }
+}
+
+async function fetchServerProgress(userId: string): Promise<SavedGameState | null> {
+  try {
+    const res = await fetch(`/.proxy/api/progress?userId=${encodeURIComponent(userId)}&date=${TODAY}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data) return null;
+    return {
+      guesses: data.guesses ?? [],
+      evaluations: data.evaluations ?? [],
+      gameStatus: data.completed ? (data.won ? "won" : "lost") : "playing",
+      dayNumber: getDayNumber(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveServerProgress(userId: string, state: SavedGameState) {
+  fetch("/.proxy/api/progress", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      userId,
+      date: TODAY,
+      guesses: state.guesses,
+      evaluations: state.evaluations,
+      completed: state.gameStatus !== "playing",
+      won: state.gameStatus === "won",
+    }),
+  }).catch(() => {}); // fire-and-forget
 }
 
 // Module-level cache so it persists across re-renders
@@ -87,7 +120,7 @@ function deriveKeyboardColors(
   return map;
 }
 
-export function useGameState(): [GameState, GameActions] {
+export function useGameState(userId?: string): [GameState, GameActions] {
   const answer = getDailyAnswer();
   const dayNumber = getDayNumber();
 
@@ -110,6 +143,24 @@ export function useGameState(): [GameState, GameActions] {
 
   // Ref to track if a validation is already in flight (prevents double-submit)
   const validatingRef = useRef(false);
+
+  // On mount: load progress from server (overrides localStorage if server has more)
+  useEffect(() => {
+    if (!userId) return;
+    fetchServerProgress(userId).then((serverState) => {
+      if (!serverState) return;
+      // Server wins if it has a completed game or more guesses than local
+      setGuesses((prev) => {
+        if (serverState.gameStatus !== "playing" || serverState.guesses.length > prev.length) {
+          setEvaluations(serverState.evaluations);
+          setGameStatus(serverState.gameStatus);
+          saveState(serverState);
+          return serverState.guesses;
+        }
+        return prev;
+      });
+    });
+  }, [userId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const showToast = useCallback((message: string, duration = 1500) => {
     setToast(message);
@@ -142,7 +193,9 @@ export function useGameState(): [GameState, GameActions] {
         const newStatus: GameStatus = won ? "won" : lost ? "lost" : "playing";
         setGameStatus(newStatus);
 
-        saveState({ guesses: newGuesses, evaluations: newEvaluations, gameStatus: newStatus, dayNumber });
+        const stateToSave = { guesses: newGuesses, evaluations: newEvaluations, gameStatus: newStatus, dayNumber };
+        saveState(stateToSave);
+        if (userId) saveServerProgress(userId, stateToSave);
 
         if (won) {
           const messages = ["Brilliant!", "Impressive!", "Splendid!", "Great!", "Phew!", "Close one!"];
