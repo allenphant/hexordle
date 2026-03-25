@@ -3,6 +3,8 @@ import { TileState } from "../lib/evaluate";
 import { generateShareText } from "../lib/share";
 import { Stats } from "../hooks/useStats";
 
+interface TextChannel { id: string; name: string; }
+
 interface ResultModalProps {
   gameStatus: "won" | "lost";
   answer: string;
@@ -37,7 +39,6 @@ async function copyToClipboard(text: string): Promise<boolean> {
     await navigator.clipboard.writeText(text);
     return true;
   } catch {
-    // execCommand fallback (works inside Discord Electron)
     try {
       const el = document.createElement("textarea");
       el.value = text;
@@ -65,10 +66,34 @@ export function ResultModal({
   const [posted, setPosted] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
 
+  // Channel picker state
+  const [channels, setChannels] = useState<TextChannel[]>([]);
+  const [selectedChannelId, setSelectedChannelId] = useState<string>(channelId ?? "");
+  const [loadingChannels, setLoadingChannels] = useState(false);
+
   useEffect(() => {
     const id = setInterval(() => setCountdown(getNextMidnight()), 1000);
     return () => clearInterval(id);
   }, []);
+
+  // Fetch text channels when modal opens (only if in a guild)
+  useEffect(() => {
+    if (!guildId) return;
+    setLoadingChannels(true);
+    fetch(`/.proxy/api/channels?guildId=${guildId}`)
+      .then((r) => r.json())
+      .then((list: TextChannel[]) => {
+        setChannels(list);
+        // Default to current voice channel if it's in the list, otherwise first text channel
+        const match = list.find((c) => c.id === channelId);
+        setSelectedChannelId(match ? match.id : (list[0]?.id ?? channelId ?? ""));
+      })
+      .catch(() => {
+        // If fetch fails, fall back to the current channel
+        setSelectedChannelId(channelId ?? "");
+      })
+      .finally(() => setLoadingChannels(false));
+  }, [guildId, channelId]);
 
   const shareText = generateShareText(evaluations, gameStatus === "won");
 
@@ -81,7 +106,7 @@ export function ResultModal({
   };
 
   const handlePostToChannel = async () => {
-    if (isPosting || posted || !channelId) return;
+    if (isPosting || posted || !selectedChannelId) return;
     setIsPosting(true);
     setPostError(null);
     try {
@@ -89,14 +114,11 @@ export function ResultModal({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId,
-          username,
-          avatarHash,
-          evaluations,
+          userId, username, avatarHash, evaluations,
           won: gameStatus === "won",
           guessCount: evaluations.length,
           dayNumber,
-          channelId,
+          channelId: selectedChannelId,
           guildId,
         }),
       });
@@ -116,6 +138,8 @@ export function ResultModal({
   const winRate = stats.gamesPlayed > 0
     ? Math.round((stats.gamesWon / stats.gamesPlayed) * 100)
     : 0;
+
+  const canShare = !!(guildId || channelId);
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -162,19 +186,39 @@ export function ResultModal({
             </button>
           </div>
 
-          {channelId && (
-            <button
-              className="share-btn share-btn--channel"
-              onClick={handlePostToChannel}
-              disabled={isPosting || posted}
-            >
-              {posted ? "✓ Posted to Channel!" : isPosting ? "Posting..." : "📤 Share to Channel"}
-            </button>
+          {canShare && (
+            <>
+              {/* Channel selector — only shown in guilds with channels loaded */}
+              {channels.length > 0 && (
+                <select
+                  className="channel-select"
+                  value={selectedChannelId}
+                  onChange={(e) => setSelectedChannelId(e.target.value)}
+                  disabled={isPosting || posted}
+                >
+                  {channels.map((c) => (
+                    <option key={c.id} value={c.id}>#{c.name}</option>
+                  ))}
+                </select>
+              )}
+
+              <button
+                className="share-btn share-btn--channel"
+                onClick={handlePostToChannel}
+                disabled={isPosting || posted || loadingChannels}
+              >
+                {posted
+                  ? "✓ Posted!"
+                  : isPosting
+                  ? "Posting..."
+                  : loadingChannels
+                  ? "Loading channels..."
+                  : "📤 Share to Channel"}
+              </button>
+            </>
           )}
 
-          {postError && (
-            <p className="modal-post-error">{postError}</p>
-          )}
+          {postError && <p className="modal-post-error">{postError}</p>}
         </div>
       </div>
     </div>

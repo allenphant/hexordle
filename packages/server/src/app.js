@@ -174,6 +174,35 @@ app.post("/api/post-result", async (req, res) => {
   }
 });
 
+// ─── Fetch Text Channels for Channel Picker ──────────────────────────────────
+app.get("/api/channels", async (req, res) => {
+  const { guildId } = req.query;
+  const botToken = process.env.BOT_TOKEN;
+  if (!botToken) return res.status(503).json({ error: "BOT_TOKEN not configured" });
+  if (!guildId) return res.status(400).json({ error: "guildId required" });
+
+  try {
+    const response = await fetch(
+      `https://discord.com/api/v10/guilds/${guildId}/channels`,
+      { headers: { Authorization: `Bot ${botToken}` } }
+    );
+
+    if (!response.ok) return res.status(502).json({ error: "Failed to fetch channels" });
+
+    const all = await response.json();
+    // type 0 = GUILD_TEXT, type 5 = GUILD_ANNOUNCEMENT — both are text channels
+    const text = all
+      .filter((c) => c.type === 0 || c.type === 5)
+      .sort((a, b) => a.position - b.position)
+      .map((c) => ({ id: c.id, name: c.name }));
+
+    res.json(text);
+  } catch (err) {
+    console.error("Fetch channels error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ─── Word Validation (proxied + cached) ──────────────────────────────────────
 const wordCache = new Map();
 

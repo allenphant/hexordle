@@ -51,6 +51,8 @@ body {
   max-width: 500px;
   margin: 0 auto;
   padding: 0 8px;
+  /* push content below the device status bar / notch on mobile */
+  padding-top: env(safe-area-inset-top);
   overflow: hidden;
 }
 
@@ -403,6 +405,22 @@ body {
   color: #ff6b6b;
   text-align: center;
   margin: 0;
+}
+
+.channel-select {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--color-absent);
+  color: var(--color-text);
+  border: 1px solid #555;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23fff' d='M6 8L0 0h12z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
 }
 
 /* ─── Game Main (board + spectator side by side) ─── */
