@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { TileState, evaluateGuess } from "../lib/evaluate";
 import { getDailyAnswer } from "../lib/words";
-import { getDayNumber } from "../lib/share";
+import { getDayNumber, getLocalDate } from "../lib/share";
 
 export type GameStatus = "playing" | "won" | "lost";
 
@@ -13,7 +13,7 @@ interface SavedGameState {
 }
 
 const STORAGE_KEY = "hexordle-state";
-const TODAY = new Date().toISOString().split("T")[0]; // YYYY-MM-DD (UTC)
+const TODAY = getLocalDate(); // YYYY-MM-DD local date — consistent with getDayNumber()
 
 function loadSavedState(): SavedGameState | null {
   try {
@@ -64,6 +64,7 @@ function saveServerProgress(
     body: JSON.stringify({
       userId,
       date: TODAY,
+      dayNumber: state.dayNumber,
       guesses: state.guesses,
       evaluations: state.evaluations,
       completed: state.gameStatus !== "playing",
