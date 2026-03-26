@@ -21,6 +21,9 @@ RUN npm run build
 # ── Runtime image ──────────────────────────────────────────────
 FROM node:20-alpine
 
+# Fonts needed for @napi-rs/canvas text rendering
+RUN apk add --no-cache fontconfig ttf-freefont
+
 WORKDIR /app
 
 COPY package*.json ./

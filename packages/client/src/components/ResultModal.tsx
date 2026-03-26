@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { TileState } from "../lib/evaluate";
-import { generateShareText } from "../lib/share";
+import { generateShareText, getLocalDate } from "../lib/share";
 import { Stats } from "../hooks/useStats";
 
 interface TextChannel { id: string; name: string; }
@@ -68,8 +68,9 @@ export function ResultModal({
 
   // Channel picker state
   const [channels, setChannels] = useState<TextChannel[]>([]);
-  const [selectedChannelId, setSelectedChannelId] = useState<string>(channelId ?? "");
+  const [selectedChannelId, setSelectedChannelId] = useState<string>("");
   const [loadingChannels, setLoadingChannels] = useState(false);
+  const [botNotInServer, setBotNotInServer] = useState(false);
 
   useEffect(() => {
     const id = setInterval(() => setCountdown(getNextMidnight()), 1000);
@@ -81,17 +82,17 @@ export function ResultModal({
     if (!guildId) return;
     setLoadingChannels(true);
     fetch(`/.proxy/api/channels?guildId=${guildId}`)
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error("fetch failed");
+        return r.json();
+      })
       .then((list: TextChannel[]) => {
+        if (list.length === 0) { setBotNotInServer(true); return; }
         setChannels(list);
-        // Default to current voice channel if it's in the list, otherwise first text channel
         const match = list.find((c) => c.id === channelId);
-        setSelectedChannelId(match ? match.id : (list[0]?.id ?? channelId ?? ""));
+        setSelectedChannelId(match ? match.id : list[0].id);
       })
-      .catch(() => {
-        // If fetch fails, fall back to the current channel
-        setSelectedChannelId(channelId ?? "");
-      })
+      .catch(() => setBotNotInServer(true))
       .finally(() => setLoadingChannels(false));
   }, [guildId, channelId]);
 
@@ -118,6 +119,7 @@ export function ResultModal({
           won: gameStatus === "won",
           guessCount: evaluations.length,
           dayNumber,
+          date: getLocalDate(),
           channelId: selectedChannelId,
           guildId,
         }),
@@ -189,33 +191,40 @@ export function ResultModal({
 
           {canShare && (
             <>
-              {/* Channel selector — only shown in guilds with channels loaded */}
-              {channels.length > 0 && (
-                <select
-                  className="channel-select"
-                  value={selectedChannelId}
-                  onChange={(e) => setSelectedChannelId(e.target.value)}
-                  disabled={isPosting || posted}
-                >
-                  {channels.map((c) => (
-                    <option key={c.id} value={c.id}>#{c.name}</option>
-                  ))}
-                </select>
-              )}
+              {botNotInServer ? (
+                <p className="modal-post-error">
+                  Add Hexordle to this server to share results
+                </p>
+              ) : (
+                <>
+                  {channels.length > 0 && (
+                    <select
+                      className="channel-select"
+                      value={selectedChannelId}
+                      onChange={(e) => setSelectedChannelId(e.target.value)}
+                      disabled={isPosting || posted}
+                    >
+                      {channels.map((c) => (
+                        <option key={c.id} value={c.id}>#{c.name}</option>
+                      ))}
+                    </select>
+                  )}
 
-              <button
-                className="share-btn share-btn--channel"
-                onClick={handlePostToChannel}
-                disabled={isPosting || posted || loadingChannels}
-              >
-                {posted
-                  ? "✓ Posted!"
-                  : isPosting
-                  ? "Posting..."
-                  : loadingChannels
-                  ? "Loading channels..."
-                  : "📤 Share to Channel"}
-              </button>
+                  <button
+                    className="share-btn share-btn--channel"
+                    onClick={handlePostToChannel}
+                    disabled={isPosting || posted || loadingChannels || !selectedChannelId}
+                  >
+                    {posted
+                      ? "✓ Posted!"
+                      : isPosting
+                      ? "Posting..."
+                      : loadingChannels
+                      ? "Loading channels..."
+                      : "📤 Share to Channel"}
+                  </button>
+                </>
+              )}
             </>
           )}
 
