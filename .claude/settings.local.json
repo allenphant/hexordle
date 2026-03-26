@@ -39,7 +39,8 @@
       "WebFetch(domain:discord.js.org)",
       "WebFetch(domain:support-dev.discord.com)",
       "WebFetch(domain:www.mava.app)",
-      "WebFetch(domain:faq.dots.community)"
+      "WebFetch(domain:faq.dots.community)",
+      "Bash(npm run:*)"
     ]
   }
 }

@@ -1,0 +1,149 @@
+{
+  "L0": "Hexordle 完成跨裝置同步、文字頻道 slash command、每日 Discord 排行榜訊息，部分功能有 bug 待修",
+  "compact_version": "2.0",
+  "timestamp": "2026-03-26T16:00:00+08:00",
+  "project": {
+    "name": "Hexordle",
+    "path": "C:/Users/raging/Desktop/Vibe_coding/Hexordle",
+    "tech_stack": ["TypeScript", "React", "Express", "WebSocket", "Discord Embedded App SDK", "Railway", "PostgreSQL", "Docker"],
+    "description": "Discord Activity 形式的六字母 Wordle 遊戲，支援多人觀戰、跨裝置同步、頻道每日排行榜"
+  },
+  "session_goal": "實作跨裝置進度同步、修復 UI 問題、讓遊戲可在文字頻道啟動、每日排行榜訊息",
+  "completed": [
+    {
+      "task": "跨裝置進度同步（Railway PostgreSQL）",
+      "files": ["packages/server/src/app.js", "packages/client/src/hooks/useGameState.ts"],
+      "detail": "每次猜字存 DB，開啟遊戲時從 server 載入今日進度（server 狀態優先）"
+    },
+    {
+      "task": "文字頻道 /hexordle slash command",
+      "files": ["packages/server/src/app.js"],
+      "detail": "CHAT_INPUT (type 1) 指令回覆 ephemeral 訊息含 Launch 按鈕，PRIMARY_ENTRY_POINT (type 4) 改 handler:1 直接回傳 LAUNCH_ACTIVITY"
+    },
+    {
+      "task": "命令重新註冊改用 PUT 批次覆寫",
+      "files": ["packages/server/src/app.js"],
+      "detail": "PUT /applications/{id}/commands 一次替換全部，避免 50223 重複錯誤"
+    },
+    {
+      "task": "修 TypeScript 循環引用 build error",
+      "files": ["packages/client/src/components/SpectatorPanel.tsx", "packages/client/src/components/Game.tsx"],
+      "detail": "GuildRecord interface 移到 SpectatorPanel.tsx 並 export，Game.tsx 改從那裡 import"
+    },
+    {
+      "task": "SpectatorPanel 加顯示今日已完成成員",
+      "files": ["packages/client/src/components/SpectatorPanel.tsx", "packages/client/src/components/Game.tsx"],
+      "detail": "遊戲內右側面板分兩區：即時語音玩家（WebSocket）＋今日完成紀錄（DB，30秒刷新）"
+    },
+    {
+      "task": "Share to Channel 改為每日一則訊息（edit-not-post）",
+      "files": ["packages/server/src/app.js"],
+      "detail": "每次猜字 → POST /api/progress → refreshGuildMessage() 編輯 Discord 訊息；channel_daily_message 以 (guild_id, date) 為 PK"
+    },
+    {
+      "task": "修正字詞更換時間（本地時間 00:00）",
+      "files": ["packages/client/src/lib/share.ts", "packages/client/src/hooks/useGameState.ts"],
+      "detail": "epoch 改用 new Date(2026,0,1)（本地時間），TODAY 改用 getLocalDate() 確保一致"
+    },
+    {
+      "task": "Share 在其他伺服器顯示友好錯誤",
+      "files": ["packages/client/src/components/ResultModal.tsx"],
+      "detail": "Bot 不在該伺服器時顯示「Add Hexordle to this server to share results」，不顯示 Share 按鈕"
+    },
+    {
+      "task": "修 Bot 授權問題（其他伺服器無法邀請）",
+      "files": [],
+      "detail": "Developer Portal → Installation → Guild Install 加 bot scope + Send Messages + Embed Links"
+    },
+    {
+      "task": "手機 UI 空白修正、桌面左側被切修正",
+      "files": ["packages/client/src/styles/index.css"],
+      "detail": ".game-main 改 align-items:stretch + min-height:0，max-width 從 500px 改 700px"
+    }
+  ],
+  "in_progress": [
+    {
+      "task": "每日排行榜 Discord 訊息（每次猜字自動更新）",
+      "status": "邏輯已實作，但 channel_daily_message PK migration bug 導致查詢失敗、產生重複訊息",
+      "next_step": "確認 Railway 重新部署後 migration 修好了（DROP 舊表 + CREATE 新表），再測試猜字時是否自動更新訊息",
+      "blockers": "舊版 channel_daily_message 表 PK 是 (channel_id,date)，新版需要 (guild_id,date)"
+    },
+    {
+      "task": "Discord 訊息格子顯示優化（emoji → 圖片）",
+      "status": "目前回到 emoji 無空格（.join('')），官方 Wordle 是輸出圖片效果更好",
+      "next_step": "安裝 @napi-rs/canvas，在 server 生成 PNG 圖片（頭像+色塊），上傳為 Discord 附件",
+      "blockers": "需要確認 @napi-rs/canvas 在 Railway Docker (linux-x64) 能正常執行"
+    },
+    {
+      "task": "遊戲進出通知（洗版問題）",
+      "status": "PRIMARY_ENTRY_POINT 改 handler:1 嘗試減少通知，但 Discord 平台層的 session card 仍無法完全阻止",
+      "next_step": "觀察 handler:1 部署後通知是否減少，如果沒有就接受現狀",
+      "blockers": "Discord 平台行為，開發者無法完全控制"
+    }
+  ],
+  "failed_approaches": [
+    {
+      "attempt": "PRIMARY_ENTRY_POINT handler:2 搭配 POST 重新註冊",
+      "why_failed": "Discord 報 50223（每個 app 只能有一個 PRIMARY_ENTRY_POINT）",
+      "lesson": "更新指令要用 PUT /commands 批次覆寫，不要用 POST"
+    },
+    {
+      "attempt": "channel_daily_message 以 (channel_id, date) 為 PK",
+      "why_failed": "新邏輯以 guild 為單位追蹤訊息，需要 (guild_id, date) 作 PK，舊表 CREATE IF NOT EXISTS 不會自動修改",
+      "lesson": "schema 變更要加 migration 邏輯（DO $$ 檢查欄位是否存在再 DROP 重建）"
+    },
+    {
+      "attempt": "emoji 格子加空格(.join(' '))",
+      "why_failed": "Discord 顯示時每格間距太大，格子太寬",
+      "lesson": "Discord embed 中 block emoji 不需要加空格，官方 Wordle 用圖片而非 emoji"
+    },
+    {
+      "attempt": "SpectatorPanel 從 Game.tsx import GuildRecord",
+      "why_failed": "循環引用（Game→SpectatorPanel→Game）導致 TypeScript build error exit code 2",
+      "lesson": "共用型別要放在被引用的那一側（SpectatorPanel）或獨立 types.ts"
+    }
+  ],
+  "key_decisions": [
+    {
+      "decision": "每日 Discord 訊息以 guild 為單位（一個 guild 一天一則）",
+      "reason": "避免不同頻道發多則，降低洗版，符合官方 Wordle 行為",
+      "alternatives_rejected": ["以 channel 為單位（多頻道多則）"]
+    },
+    {
+      "decision": "每次猜字就 fire-and-forget 呼叫 refreshGuildMessage",
+      "reason": "達到「即時更新」效果，失敗不影響遊戲，符合使用者對官方 Wordle 行為的期待",
+      "alternatives_rejected": ["只在遊戲結束時更新", "只在點 Share 時更新"]
+    },
+    {
+      "decision": "emoji 暫時回到無空格，圖片方案列為待做",
+      "reason": "圖片方案需要 @napi-rs/canvas 和較多開發工作，先確保邏輯正確再美化",
+      "alternatives_rejected": ["維持加空格（太寬）", "直接實作圖片（範圍太大先跳過）"]
+    },
+    {
+      "decision": "字詞更換時間改為本地時間 00:00",
+      "reason": "用 new Date('2026-01-01') 是 UTC midnight，對 UTC+8 用戶的 getDayNumber() 會差 8 小時",
+      "alternatives_rejected": ["全部改 UTC（對台灣用戶在早上 8 點換字，不直覺）"]
+    }
+  ],
+  "user_preferences": [
+    "溝通用中文，程式碼和遊戲內容用英文",
+    "操作步驟要詳細說明，包含目的和理由",
+    "指引網站操作步驟時要說明在哪裡點",
+    "專案想當作品集，功能穩定後再寫 README",
+    "不喜歡任何 6 字母都能輸入，要有真實單字驗證",
+    "Discord 頻道通知不要洗版（每日一則訊息、不要重複發）",
+    "Discord 訊息格子希望像官方 Wordle 一樣用圖片顯示"
+  ],
+  "key_files": {
+    "packages/server/src/app.js": "Express server：token exchange、字庫驗證、Bot 發訊息、WebSocket 多人同步、Discord 互動端點、PostgreSQL progress sync、refreshGuildMessage",
+    "packages/client/src/hooks/useGameState.ts": "遊戲核心狀態：含非同步單字驗證、server sync（每次猜字存 DB）、mount 時從 server 載入進度",
+    "packages/client/src/components/ResultModal.tsx": "結算視窗：統計、頻道選擇器、Share to Channel（建立/更新每日 guild 訊息）",
+    "packages/client/src/components/SpectatorPanel.tsx": "右側面板：即時語音玩家（WebSocket）＋今日完成紀錄（DB）；定義並 export GuildRecord 型別",
+    "packages/client/src/components/Game.tsx": "遊戲主元件：整合所有 hooks，每 30s fetch guild progress，傳 guildId/username 給 useGameState",
+    "packages/client/src/lib/share.ts": "getDayNumber()（本地時間 epoch）、getLocalDate()（YYYY-MM-DD 本地）",
+    "packages/client/src/styles/index.css": "全域樣式：響應式斷點、safe-area、Discord 語音面板 padding",
+    "Dockerfile": "多階段建置：builder build client，runtime 只保留 server + client/dist",
+    "railway.json": "Railway 部署設定"
+  },
+  "handover_context": "Hexordle 已部署至 Railway，主要功能正常。待修：(1) channel_daily_message migration bug 剛在本 session 修好，需要確認部署後每次猜字能正確 edit Discord 訊息（不再重複發新訊息）；(2) Discord 訊息格子顯示太醜（emoji 無空格），下一步考慮用 @napi-rs/canvas 生成圖片像官方 Wordle；(3) PRIMARY_ENTRY_POINT handler:1 是否減少遊戲進出通知需要觀察。建議第一步：確認部署後測試 Share to Channel 功能和猜字時的訊息更新是否正常。"
+}

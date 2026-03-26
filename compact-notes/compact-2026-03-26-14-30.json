@@ -1,0 +1,126 @@
+{
+  "L0": "Hexordle Discord Activity 部署到 Railway 並完成多項功能修復，進行中",
+  "compact_version": "2.0",
+  "timestamp": "2026-03-26T14:30:00+08:00",
+  "project": {
+    "name": "Hexordle",
+    "path": "C:/Users/raging/Desktop/Vibe_coding/Hexordle",
+    "tech_stack": ["TypeScript", "React", "Express", "WebSocket", "Discord Embedded App SDK", "Railway", "Docker"],
+    "description": "Discord Activity 形式的六字母 Wordle 遊戲，支援多人觀戰與頻道分享"
+  },
+  "session_goal": "修復 token exchange 500 錯誤並完成部署，同時改善 UI 響應式與字庫驗證",
+  "completed": [
+    {
+      "task": "修復 dotenv 路徑問題導致 CLIENT_SECRET 無法載入",
+      "files": ["packages/server/src/app.js"],
+      "detail": "改用 dotenv.config({ path: resolve(__dirname, '../../../.env') }) 指向根目錄"
+    },
+    {
+      "task": "修復 React StrictMode 導致 Discord SDK authorize 被呼叫兩次（Already authing）",
+      "files": ["packages/client/src/main.tsx"],
+      "detail": "移除 StrictMode，Discord Activity 不適合雙次 effect 執行"
+    },
+    {
+      "task": "UI 響應式改造，適應不同 Discord Activity 視窗尺寸",
+      "files": ["packages/client/src/styles/index.css"],
+      "detail": "加入高度/寬度斷點，tile-size/key-height 使用 CSS 變數動態縮放，keyboard 加 96px bottom padding 避免語音面板遮擋"
+    },
+    {
+      "task": "字庫驗證改為透過 server 代理 dictionaryapi.dev，client 快取結果",
+      "files": ["packages/server/src/app.js", "packages/client/src/hooks/useGameState.ts"],
+      "detail": "新增 /api/validate 端點，useGameState 改為 async Enter 處理，加 isValidating 狀態防重複送出"
+    },
+    {
+      "task": "結算 Modal 加入 Share to Channel 功能（via Discord Bot）",
+      "files": ["packages/server/src/app.js", "packages/client/src/components/ResultModal.tsx"],
+      "detail": "server 新增 /api/post-result，用 BOT_TOKEN 發 embed + 互動按鈕到指定頻道"
+    },
+    {
+      "task": "部署到 Railway，使用 Dockerfile 多階段建置",
+      "files": ["Dockerfile", ".dockerignore", "railway.json", "packages/server/src/app.js"],
+      "detail": "PORT 改為 process.env.PORT，health check /api/health，已成功部署至 hexordle-production.up.railway.app"
+    },
+    {
+      "task": "加入 Discord Interactions Endpoint，Play now 按鈕可直接啟動 Activity",
+      "files": ["packages/server/src/app.js", "packages/server/package.json"],
+      "detail": "新增 tweetnacl 驗簽，/api/interactions 回傳 type:12 (LAUNCH_ACTIVITY)，server 啟動時自動註冊 PRIMARY_ENTRY_POINT command"
+    },
+    {
+      "task": "手機畫面被通知欄遮擋修復",
+      "files": ["packages/client/index.html", "packages/client/src/styles/index.css"],
+      "detail": "viewport-fit=cover + padding-top: env(safe-area-inset-top)"
+    },
+    {
+      "task": "Share to Channel 加入頻道選擇器",
+      "files": ["packages/server/src/app.js", "packages/client/src/components/ResultModal.tsx", "packages/client/src/styles/index.css"],
+      "detail": "新增 /api/channels 端點取得 guild 文字頻道清單，Modal 開啟時自動載入並顯示 dropdown"
+    }
+  ],
+  "in_progress": [
+    {
+      "task": "跨裝置進度同步",
+      "status": "已識別問題（localStorage 是裝置本地），尚未實作",
+      "next_step": "決定是否加資料庫（Railway PostgreSQL 或 Upstash Redis）來存每位 userId 的當日進度",
+      "blockers": "需要使用者確認是否要做此功能"
+    }
+  ],
+  "failed_approaches": [
+    {
+      "attempt": "使用 Fly.io 部署",
+      "why_failed": "Fly.io 2024 年取消免費方案，社群有大量意外高額帳單投訴",
+      "lesson": "改用 Railway，$5/月 Hobby Plan 對 hobby 專案夠用"
+    },
+    {
+      "attempt": "Play now 按鈕使用 LINK 型 (style:5) 指向頻道 URL",
+      "why_failed": "LINK 按鈕只能跳轉網頁，無法觸發 Discord LAUNCH_ACTIVITY",
+      "lesson": "要啟動 Activity 必須用互動按鈕（style 1-4）+ server 回傳 type:12"
+    },
+    {
+      "attempt": "使用 Cloudflare Tunnel login 建立固定 tunnel",
+      "why_failed": "cloudflared tunnel login 需要 Cloudflare zone（網域），使用者沒有網域",
+      "lesson": "生產環境用 Railway 就不需要 tunnel；開發期用隨機 tunnel + 更新 vite.config.ts TUNNEL_HOST 環境變數"
+    }
+  ],
+  "key_decisions": [
+    {
+      "decision": "部署平台選 Railway",
+      "reason": "$5/月、WebSocket 支援、自動 HTTPS、GitHub push 自動部署，設定最簡單",
+      "alternatives_rejected": ["Fly.io（帳單風險）", "AWS EC2（設定複雜）"]
+    },
+    {
+      "decision": "字庫驗證用 API 代理而非內建字庫",
+      "reason": "避免 bundle 過大，準確度最高，延遲可接受",
+      "alternatives_rejected": ["內建 3000+ 字庫（bundle 大）", "移除驗證（UX 差）"]
+    },
+    {
+      "decision": "Discord Bot Token 分離使用",
+      "reason": "Bot Token 用於發訊息到頻道，Client Secret 用於 OAuth2，是同一 Application 下的不同功能",
+      "alternatives_rejected": []
+    },
+    {
+      "decision": "GitHub repo 設為 Public",
+      "reason": "使用者想當作品集展示，.env 已被 .gitignore 排除，CLIENT_ID 本來就是公開的",
+      "alternatives_rejected": ["Private（無法作品集展示）"]
+    }
+  ],
+  "user_preferences": [
+    "溝通用中文，程式碼和遊戲內容用英文",
+    "操作步驟要詳細說明，包含目的和理由（使用者是新手）",
+    "指引網站操作步驟時要詳細說明在哪裡點、找什麼",
+    "專案想當作品集，未來可能加 README",
+    "README 等功能穩定後再一起寫",
+    "不喜歡任何 6 字母都能輸入，要有真實單字驗證"
+  ],
+  "key_files": {
+    "packages/server/src/app.js": "Express server，處理 token exchange、字庫驗證、Bot 發訊息、WebSocket 多人同步、Discord 互動端點",
+    "packages/client/src/hooks/useGameState.ts": "遊戲核心狀態，含非同步單字驗證與 Enter 防重複送出",
+    "packages/client/src/components/ResultModal.tsx": "結算視窗，含統計、頻道選擇器、Share to Channel",
+    "packages/client/src/styles/index.css": "全域樣式，含響應式斷點（高度/寬度）、safe-area、Discord 語音面板 padding",
+    "packages/client/src/discordSdk.ts": "Discord SDK 初始化與 OAuth2 流程",
+    "packages/client/vite.config.ts": "開發時 tunnel host 透過 TUNNEL_HOST 環境變數注入，不寫死",
+    "Dockerfile": "多階段建置：builder 裝依賴並 build client，runtime 只保留 server 和 client/dist",
+    "railway.json": "Railway 部署設定，使用 Dockerfile，health check /api/health",
+    ".gitignore": "排除 .env、node_modules，保護密鑰"
+  },
+  "handover_context": "Hexordle 已成功部署至 Railway (hexordle-production.up.railway.app)，Discord Activity 可在語音頻道和文字頻道啟動，結算後可選頻道分享結果並附帶啟動遊戲的互動按鈕。待處理：跨裝置進度同步（需資料庫，使用者尚未決定要不要做），以及等功能穩定後撰寫 README 作品集說明。建議第一步確認使用者是否要做跨裝置進度同步。"
+}

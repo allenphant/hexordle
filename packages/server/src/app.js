@@ -8,6 +8,16 @@ import nacl from "tweetnacl";
 import pg from "pg";
 const { Pool } = pg;
 
+// @napi-rs/canvas for Discord progress image generation
+let createCanvas = null;
+try {
+  const canvasModule = await import("@napi-rs/canvas");
+  createCanvas = canvasModule.createCanvas;
+  console.log("[Canvas] @napi-rs/canvas loaded");
+} catch {
+  console.warn("[Canvas] @napi-rs/canvas not available — falling back to emoji grid");
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __rootdir = resolve(dirname(__filename), "../../..");
 dotenv.config({ path: resolve(__rootdir, ".env") });
@@ -37,23 +47,224 @@ async function initDb() {
       PRIMARY KEY (user_id, date)
     )
   `);
-  // Migrate existing tables that don't have guild_id / username yet
+  // Migrate existing tables
   await pool.query(`ALTER TABLE user_progress ADD COLUMN IF NOT EXISTS guild_id TEXT`);
   await pool.query(`ALTER TABLE user_progress ADD COLUMN IF NOT EXISTS username TEXT`);
+  await pool.query(`ALTER TABLE user_progress ADD COLUMN IF NOT EXISTS day_number INTEGER`);
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_guild_date
     ON user_progress (guild_id, date) WHERE guild_id IS NOT NULL
   `);
-  // Track which Discord message holds today's results per channel (for edit-not-post)
+  // One Discord message per guild per day — migrate old (channel_id,date) PK to (guild_id,date)
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.tables WHERE table_name = 'channel_daily_message'
+      ) AND NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'channel_daily_message' AND column_name = 'guild_id'
+      ) THEN
+        DROP TABLE channel_daily_message;
+      END IF;
+    END $$
+  `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS channel_daily_message (
-      channel_id TEXT NOT NULL,
+      guild_id   TEXT NOT NULL,
       date       TEXT NOT NULL,
+      channel_id TEXT NOT NULL,
       message_id TEXT NOT NULL,
-      PRIMARY KEY (channel_id, date)
+      day_number INTEGER,
+      PRIMARY KEY (guild_id, date)
     )
   `);
   console.log("[DB] Table ready");
+}
+
+// ─── Progress Image Generator ─────────────────────────────────────────────────
+const TILE_COLORS = { correct: "#538d4e", present: "#b59f3b", absent: "#3a3a3c" };
+const TILE_EMPTY_FILL = "#1a1a1b";
+const TILE_EMPTY_STROKE = "#3a3a3c";
+const TILE_SIZE = 32;
+const TILE_GAP = 4;
+const CARD_PAD = 14;
+const CARD_SPACING = 10;
+const HEADER_H = 40; // name + score
+
+function roundedRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function buildProgressImage(players, dayNumber) {
+  if (!createCanvas) return null;
+  const gridPx = 6 * TILE_SIZE + 5 * TILE_GAP;
+  const cardW = gridPx + CARD_PAD * 2;
+  const cardH = HEADER_H + gridPx + CARD_PAD * 2;
+  const canvasW = players.length * (cardW + CARD_SPACING) - CARD_SPACING + CARD_PAD * 2;
+  const canvasH = cardH + CARD_PAD * 2;
+
+  const canvas = createCanvas(canvasW, canvasH);
+  const ctx = canvas.getContext("2d");
+
+  // Background
+  ctx.fillStyle = "#0f111a";
+  ctx.fillRect(0, 0, canvasW, canvasH);
+
+  players.forEach((player, i) => {
+    const cx = CARD_PAD + i * (cardW + CARD_SPACING);
+    const cy = CARD_PAD;
+
+    // Card background
+    ctx.fillStyle = "#1a1d2e";
+    roundedRect(ctx, cx, cy, cardW, cardH, 8);
+    ctx.fill();
+
+    // Player name
+    const score = player.completed
+      ? (player.won ? `${(player.evaluations ?? []).length}/6` : "X/6")
+      : `${(player.evaluations ?? []).length}/6…`;
+
+    ctx.fillStyle = "#d7dadc";
+    ctx.font = "bold 13px FreeSans,Arial,sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    const nameMaxW = cardW - CARD_PAD * 2;
+    const displayName = truncateText(ctx, player.username ?? "Player", nameMaxW);
+    ctx.fillText(displayName, cx + cardW / 2, cy + CARD_PAD);
+
+    ctx.fillStyle = "#818384";
+    ctx.font = "11px FreeSans,Arial,sans-serif";
+    ctx.fillText(score, cx + cardW / 2, cy + CARD_PAD + 17);
+
+    // Grid
+    const evals = player.evaluations ?? [];
+    const gx = cx + CARD_PAD;
+    const gy = cy + HEADER_H + CARD_PAD;
+
+    for (let row = 0; row < 6; row++) {
+      for (let col = 0; col < 6; col++) {
+        const tx = gx + col * (TILE_SIZE + TILE_GAP);
+        const ty = gy + row * (TILE_SIZE + TILE_GAP);
+        const state = evals[row]?.[col];
+
+        if (state && TILE_COLORS[state]) {
+          ctx.fillStyle = TILE_COLORS[state];
+          roundedRect(ctx, tx, ty, TILE_SIZE, TILE_SIZE, 3);
+          ctx.fill();
+        } else {
+          ctx.fillStyle = TILE_EMPTY_FILL;
+          roundedRect(ctx, tx, ty, TILE_SIZE, TILE_SIZE, 3);
+          ctx.fill();
+          ctx.strokeStyle = TILE_EMPTY_STROKE;
+          ctx.lineWidth = 2;
+          roundedRect(ctx, tx + 1, ty + 1, TILE_SIZE - 2, TILE_SIZE - 2, 2);
+          ctx.stroke();
+        }
+      }
+    }
+  });
+
+  return canvas.toBuffer("image/png");
+}
+
+function truncateText(ctx, text, maxWidth) {
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  let truncated = text;
+  while (truncated.length > 1 && ctx.measureText(truncated + "…").width > maxWidth) {
+    truncated = truncated.slice(0, -1);
+  }
+  return truncated + "…";
+}
+
+// ─── Refresh the guild's daily Discord message with all members' progress ─────
+const GRID_EMOJI_MAP = { correct: "🟩", present: "🟨", absent: "⬛" };
+
+async function refreshGuildMessage(guildId, date, botToken) {
+  if (!pool || !botToken) return;
+  try {
+    const msgRow = await pool.query(
+      "SELECT channel_id, message_id, day_number FROM channel_daily_message WHERE guild_id = $1 AND date = $2",
+      [guildId, date]
+    );
+    if (msgRow.rows.length === 0) return;
+    const { channel_id, message_id, day_number } = msgRow.rows[0];
+
+    const progress = await pool.query(
+      `SELECT username, evaluations, completed, won, jsonb_array_length(guesses) AS guess_count
+       FROM user_progress
+       WHERE guild_id = $1 AND date = $2
+       ORDER BY completed DESC, jsonb_array_length(guesses) ASC`,
+      [guildId, date]
+    );
+    if (progress.rows.length === 0) return;
+
+    const components = [{
+      type: 1,
+      components: [{ type: 2, style: 1, label: "▶ Play now!", custom_id: "launch_hexordle" }],
+    }];
+
+    const patchUrl = `https://discord.com/api/v10/channels/${channel_id}/messages/${message_id}`;
+    const authHeader = { Authorization: `Bot ${botToken}` };
+
+    // Try image-based update first
+    const imageBuffer = buildProgressImage(progress.rows, day_number);
+    if (imageBuffer) {
+      const embed = {
+        title: `Hexordle #${day_number} — Today's Results`,
+        color: 0x538d4e,
+        image: { url: "attachment://progress.png" },
+      };
+      const payload = {
+        content: "",
+        embeds: [embed],
+        components,
+        attachments: [{ id: "0", filename: "progress.png" }],
+      };
+      const form = new FormData();
+      form.append("payload_json", JSON.stringify(payload));
+      form.append("files[0]", new Blob([imageBuffer], { type: "image/png" }), "progress.png");
+      await fetch(patchUrl, { method: "PATCH", headers: authHeader, body: form });
+      return;
+    }
+
+    // Fallback: emoji grid embeds (one per player)
+    const embeds = progress.rows.map((row) => {
+      const evals = row.evaluations ?? [];
+      const paddedRows = [...evals];
+      while (paddedRows.length < 6) paddedRows.push(null);
+      const grid = paddedRows
+        .map((r) => r ? r.map((s) => GRID_EMOJI_MAP[s] ?? "⬛").join("") : "⬜⬜⬜⬜⬜⬜")
+        .join("\n");
+      const score = row.completed
+        ? (row.won ? `${row.guess_count}/6` : "X/6")
+        : `${row.guess_count}/6…`;
+      return {
+        author: { name: row.username ?? "Player" },
+        title: `Hexordle #${day_number} — ${score}`,
+        description: grid,
+        color: row.won ? 0x538d4e : row.completed ? 0x3a3a3c : 0x5865f2,
+      };
+    });
+
+    await fetch(patchUrl, {
+      method: "PATCH",
+      headers: { ...authHeader, "Content-Type": "application/json" },
+      body: JSON.stringify({ embeds, components }),
+    });
+  } catch (err) {
+    console.error("[Bot] refreshGuildMessage error:", err);
+  }
 }
 
 // ─── Discord Signature Verification ──────────────────────────────────────────
@@ -96,27 +307,23 @@ app.post(
       return res.json({ type: 1 });
     }
 
-    // Type 2 = APPLICATION_COMMAND — user typed /hexordle in any channel
-    // Respond with an ephemeral message containing a Launch button
+    // Type 2 = APPLICATION_COMMAND
     if (body.type === 2 && body.data?.name === "hexordle") {
+      // PRIMARY_ENTRY_POINT (data.type 4) — launch activity directly via our handler
+      // Using handler:1 instead of handler:2 to let us control the response
+      if (body.data?.type === 4) {
+        return res.json({ type: 12 }); // LAUNCH_ACTIVITY
+      }
+      // CHAT_INPUT slash command (data.type 1) — show ephemeral button
       return res.json({
-        type: 4, // CHANNEL_MESSAGE_WITH_SOURCE
+        type: 4,
         data: {
           flags: 64, // ephemeral — only visible to the user who ran the command
           content: "Ready to play Hexordle?",
-          components: [
-            {
-              type: 1, // ACTION_ROW
-              components: [
-                {
-                  type: 2,  // BUTTON
-                  style: 1, // PRIMARY (blue)
-                  label: "🎮 Play Hexordle",
-                  custom_id: "launch_hexordle",
-                },
-              ],
-            },
-          ],
+          components: [{
+            type: 1,
+            components: [{ type: 2, style: 1, label: "🎮 Play Hexordle", custom_id: "launch_hexordle" }],
+          }],
         },
       });
     }
@@ -156,23 +363,27 @@ app.get("/api/progress", async (req, res) => {
 
 app.post("/api/progress", async (req, res) => {
   if (!pool) return res.json({ ok: true });
-  const { userId, date, guesses, evaluations, completed, won, guildId, username } = req.body;
+  const { userId, date, dayNumber, guesses, evaluations, completed, won, guildId, username } = req.body;
   if (!userId || !date) return res.status(400).json({ error: "userId and date required" });
   try {
     await pool.query(
-      `INSERT INTO user_progress (user_id, date, guesses, evaluations, completed, won, guild_id, username)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO user_progress (user_id, date, day_number, guesses, evaluations, completed, won, guild_id, username)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        ON CONFLICT (user_id, date) DO UPDATE
        SET guesses = EXCLUDED.guesses, evaluations = EXCLUDED.evaluations,
            completed = EXCLUDED.completed, won = EXCLUDED.won,
+           day_number = COALESCE(EXCLUDED.day_number, user_progress.day_number),
            guild_id = COALESCE(EXCLUDED.guild_id, user_progress.guild_id),
            username = COALESCE(EXCLUDED.username, user_progress.username)`,
-      [userId, date, JSON.stringify(guesses), JSON.stringify(evaluations), completed, won, guildId ?? null, username ?? null]
+      [userId, date, dayNumber ?? null, JSON.stringify(guesses), JSON.stringify(evaluations),
+       completed, won, guildId ?? null, username ?? null]
     );
     res.json({ ok: true });
+    // Fire-and-forget: update the guild's daily Discord message on every guess
+    if (guildId) refreshGuildMessage(guildId, date, process.env.BOT_TOKEN);
   } catch (err) {
     console.error("[DB] Error saving progress:", err);
-    res.json({ ok: true }); // fail silently — game continues
+    res.json({ ok: true });
   }
 });
 
@@ -236,117 +447,66 @@ app.post("/api/token", async (req, res) => {
 });
 
 // ─── Post Game Result to Discord Channel ─────────────────────────────────────
-const GRID_EMOJI = { correct: "🟩", present: "🟨", absent: "⬛" };
-
 app.post("/api/post-result", async (req, res) => {
-  const { userId, username, avatarHash, evaluations, won, guessCount, dayNumber, channelId, guildId } =
-    req.body;
-
+  const { dayNumber, date, channelId, guildId } = req.body;
   const botToken = process.env.BOT_TOKEN;
   if (!botToken) return res.status(503).json({ error: "BOT_TOKEN not configured" });
-
-  const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
-
-  const grid = evaluations
-    .map((row) => row.map((s) => GRID_EMOJI[s] ?? "⬛").join(" "))
-    .join("\n");
-  const score = won ? guessCount : "X";
-
-  const avatarUrl = avatarHash
-    ? `https://cdn.discordapp.com/avatars/${userId}/${avatarHash}.png?size=128`
-    : `https://cdn.discordapp.com/embed/avatars/${Number(BigInt(userId) % 6n)}.png`;
-
-  const newEmbed = {
-    author: { name: username, icon_url: avatarUrl },
-    title: `Hexordle #${dayNumber} — ${score}/6`,
-    description: grid,
-    color: won ? 0x538d4e : 0x3a3a3c,
-  };
-
-  // ▶ Play now! button — clicking it triggers /api/interactions → LAUNCH_ACTIVITY
-  const components = [{
-    type: 1,
-    components: [{
-      type: 2, style: 1, label: "▶ Play now!", custom_id: "launch_hexordle",
-    }],
-  }];
+  if (!channelId) return res.status(400).json({ error: "channelId required" });
 
   const discordHeaders = {
     Authorization: `Bot ${botToken}`,
     "Content-Type": "application/json",
   };
+  const components = [{
+    type: 1,
+    components: [{ type: 2, style: 1, label: "▶ Play now!", custom_id: "launch_hexordle" }],
+  }];
 
   try {
-    // Check if today already has a result message for this channel
-    const existing = pool
-      ? await pool.query(
-          "SELECT message_id FROM channel_daily_message WHERE channel_id = $1 AND date = $2",
-          [channelId, today]
-        )
-      : { rows: [] };
-
-    if (existing.rows.length > 0) {
-      // ── EDIT existing message: append new embed ─────────────────────────────
-      const messageId = existing.rows[0].message_id;
-
-      const currentMsg = await fetch(
-        `https://discord.com/api/v10/channels/${channelId}/messages/${messageId}`,
-        { headers: discordHeaders }
+    if (pool && guildId && date) {
+      // Check if today's guild message already exists
+      const existing = await pool.query(
+        "SELECT message_id FROM channel_daily_message WHERE guild_id = $1 AND date = $2",
+        [guildId, date]
       );
 
-      if (currentMsg.ok) {
-        const msgData = await currentMsg.json();
-        const allEmbeds = [...(msgData.embeds ?? []), newEmbed];
-
-        const editRes = await fetch(
-          `https://discord.com/api/v10/channels/${channelId}/messages/${messageId}`,
-          {
-            method: "PATCH",
-            headers: discordHeaders,
-            body: JSON.stringify({ embeds: allEmbeds, components }),
-          }
-        );
-
-        if (!editRes.ok) {
-          const err = await editRes.json();
-          console.error("Discord edit error:", err);
-          return res.status(502).json({ error: "Discord API rejected the message", detail: err });
-        }
-
+      if (existing.rows.length > 0) {
+        // Message already exists — just refresh it with latest progress
+        refreshGuildMessage(guildId, date, botToken);
         return res.json({ success: true });
       }
-      // If current message fetch failed (deleted?), fall through to post a new one
-    }
 
-    // ── POST new message and save its ID ─────────────────────────────────────
-    const postRes = await fetch(
-      `https://discord.com/api/v10/channels/${channelId}/messages`,
-      {
-        method: "POST",
-        headers: discordHeaders,
-        body: JSON.stringify({ embeds: [newEmbed], components }),
-      }
-    );
-
-    if (!postRes.ok) {
-      const err = await postRes.json();
-      console.error("Discord API error:", err);
-      return res.status(502).json({ error: "Discord API rejected the message", detail: err });
-    }
-
-    const posted = await postRes.json();
-
-    // Save message ID so future shares edit this message instead of posting new
-    if (pool) {
-      await pool.query(
-        `INSERT INTO channel_daily_message (channel_id, date, message_id)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (channel_id, date) DO NOTHING`,
-        [channelId, today, posted.id]
+      // No message yet — create the daily leaderboard message
+      const postRes = await fetch(
+        `https://discord.com/api/v10/channels/${channelId}/messages`,
+        {
+          method: "POST",
+          headers: discordHeaders,
+          body: JSON.stringify({
+            content: `**Hexordle #${dayNumber} — Today's Results**`,
+            components,
+          }),
+        }
       );
+
+      if (!postRes.ok) {
+        const err = await postRes.json();
+        return res.status(502).json({ error: "Discord API rejected the message", detail: err });
+      }
+
+      const posted = await postRes.json();
+      await pool.query(
+        `INSERT INTO channel_daily_message (guild_id, date, channel_id, message_id, day_number)
+         VALUES ($1, $2, $3, $4, $5) ON CONFLICT (guild_id, date) DO NOTHING`,
+        [guildId, date, channelId, posted.id, dayNumber]
+      );
+
+      // Fill with actual progress data
+      refreshGuildMessage(guildId, date, botToken);
+      return res.json({ success: true });
     }
 
-    res.json({ success: true });
+    res.status(400).json({ error: "guildId and date required" });
   } catch (err) {
     console.error("Post result error:", err);
     res.status(500).json({ error: "Internal server error" });
@@ -493,6 +653,7 @@ async function registerCommands() {
     Authorization: `Bot ${botToken}`,
     "Content-Type": "application/json",
   };
+  // PUT /commands replaces ALL commands atomically — handles updates to existing commands
   const url = `https://discord.com/api/v10/applications/${clientId}/commands`;
 
   const commands = [
@@ -500,7 +661,7 @@ async function registerCommands() {
       name: "hexordle",
       description: "Play Hexordle — the 6-letter word game",
       type: 4,        // PRIMARY_ENTRY_POINT — Activity Launcher entry
-      handler: 2,     // DISCORD_LAUNCH_ACTIVITY
+      handler: 1,     // APP_HANDLER — our server handles it, responds with LAUNCH_ACTIVITY
       integration_types: [0, 1],
       contexts: [0, 1, 2],
     },
@@ -513,25 +674,17 @@ async function registerCommands() {
     },
   ];
 
-  for (const cmd of commands) {
-    try {
-      const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(cmd) });
-      if (res.ok) {
-        const label = cmd.type === 4 ? "Activity Launcher entry" : "/hexordle slash command";
-        console.log(`[Bot] Registered: ${label}`);
-      } else {
-        const err = await res.json();
-        // 50223 = already registered (harmless on redeploy), 50032 = duplicate name+type
-        if (err.code === 50223 || err.code === 50032) {
-          const label = cmd.type === 4 ? "Activity Launcher entry" : "/hexordle slash command";
-          console.log(`[Bot] Already registered (ok): ${label}`);
-        } else {
-          console.error("[Bot] Failed to register command:", err);
-        }
-      }
-    } catch (err) {
-      console.error("[Bot] Error registering command:", err);
+  try {
+    // PUT replaces all commands at once — handles handler/type changes correctly
+    const res = await fetch(url, { method: "PUT", headers, body: JSON.stringify(commands) });
+    if (res.ok) {
+      console.log("[Bot] Commands registered (Activity Launcher + /hexordle slash command)");
+    } else {
+      const err = await res.json();
+      console.error("[Bot] Failed to register commands:", err);
     }
+  } catch (err) {
+    console.error("[Bot] Error registering commands:", err);
   }
 }
 
