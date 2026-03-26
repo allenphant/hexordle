@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { TileState } from "../lib/evaluate";
 import { AuthData, discordSdk } from "../discordSdk";
 import { useGameState } from "../hooks/useGameState";
 import { useStats } from "../hooks/useStats";
@@ -7,17 +6,9 @@ import { useMultiplayer } from "../hooks/useMultiplayer";
 import { Board } from "./Board";
 import { Keyboard } from "./Keyboard";
 import { ResultModal } from "./ResultModal";
-import { SpectatorPanel } from "./SpectatorPanel";
+import { SpectatorPanel, GuildRecord } from "./SpectatorPanel";
 
 const TODAY = new Date().toISOString().split("T")[0];
-
-export interface GuildRecord {
-  userId: string;
-  username: string;
-  evaluations: TileState[][];
-  completed: boolean;
-  won: boolean;
-}
 
 interface GameProps {
   auth: AuthData;

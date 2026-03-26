@@ -44,6 +44,15 @@ async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_guild_date
     ON user_progress (guild_id, date) WHERE guild_id IS NOT NULL
   `);
+  // Track which Discord message holds today's results per channel (for edit-not-post)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS channel_daily_message (
+      channel_id TEXT NOT NULL,
+      date       TEXT NOT NULL,
+      message_id TEXT NOT NULL,
+      PRIMARY KEY (channel_id, date)
+    )
+  `);
   console.log("[DB] Table ready");
 }
 
@@ -236,6 +245,8 @@ app.post("/api/post-result", async (req, res) => {
   const botToken = process.env.BOT_TOKEN;
   if (!botToken) return res.status(503).json({ error: "BOT_TOKEN not configured" });
 
+  const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+
   const grid = evaluations
     .map((row) => row.map((s) => GRID_EMOJI[s] ?? "⬛").join(" "))
     .join("\n");
@@ -245,49 +256,94 @@ app.post("/api/post-result", async (req, res) => {
     ? `https://cdn.discordapp.com/avatars/${userId}/${avatarHash}.png?size=128`
     : `https://cdn.discordapp.com/embed/avatars/${Number(BigInt(userId) % 6n)}.png`;
 
-  const embed = {
+  const newEmbed = {
     author: { name: username, icon_url: avatarUrl },
     title: `Hexordle #${dayNumber} — ${score}/6`,
     description: grid,
     color: won ? 0x538d4e : 0x3a3a3c,
-    footer: { text: "Click ▶ Play now! to join the game" },
   };
 
-  // Interaction button (style 1 = blue) — clicking this triggers our /api/interactions
-  // endpoint, which responds with type 12 (LAUNCH_ACTIVITY) to open the game
-  const components = channelId
-    ? [
-        {
-          type: 1,
-          components: [
-            {
-              type: 2,
-              style: 1, // PRIMARY (blue button, triggers interaction)
-              label: "▶ Play now!",
-              custom_id: "launch_hexordle",
-            },
-          ],
-        },
-      ]
-    : [];
+  // ▶ Play now! button — clicking it triggers /api/interactions → LAUNCH_ACTIVITY
+  const components = [{
+    type: 1,
+    components: [{
+      type: 2, style: 1, label: "▶ Play now!", custom_id: "launch_hexordle",
+    }],
+  }];
+
+  const discordHeaders = {
+    Authorization: `Bot ${botToken}`,
+    "Content-Type": "application/json",
+  };
 
   try {
-    const response = await fetch(
+    // Check if today already has a result message for this channel
+    const existing = pool
+      ? await pool.query(
+          "SELECT message_id FROM channel_daily_message WHERE channel_id = $1 AND date = $2",
+          [channelId, today]
+        )
+      : { rows: [] };
+
+    if (existing.rows.length > 0) {
+      // ── EDIT existing message: append new embed ─────────────────────────────
+      const messageId = existing.rows[0].message_id;
+
+      const currentMsg = await fetch(
+        `https://discord.com/api/v10/channels/${channelId}/messages/${messageId}`,
+        { headers: discordHeaders }
+      );
+
+      if (currentMsg.ok) {
+        const msgData = await currentMsg.json();
+        const allEmbeds = [...(msgData.embeds ?? []), newEmbed];
+
+        const editRes = await fetch(
+          `https://discord.com/api/v10/channels/${channelId}/messages/${messageId}`,
+          {
+            method: "PATCH",
+            headers: discordHeaders,
+            body: JSON.stringify({ embeds: allEmbeds, components }),
+          }
+        );
+
+        if (!editRes.ok) {
+          const err = await editRes.json();
+          console.error("Discord edit error:", err);
+          return res.status(502).json({ error: "Discord API rejected the message", detail: err });
+        }
+
+        return res.json({ success: true });
+      }
+      // If current message fetch failed (deleted?), fall through to post a new one
+    }
+
+    // ── POST new message and save its ID ─────────────────────────────────────
+    const postRes = await fetch(
       `https://discord.com/api/v10/channels/${channelId}/messages`,
       {
         method: "POST",
-        headers: {
-          Authorization: `Bot ${botToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ embeds: [embed], components }),
+        headers: discordHeaders,
+        body: JSON.stringify({ embeds: [newEmbed], components }),
       }
     );
 
-    if (!response.ok) {
-      const err = await response.json();
+    if (!postRes.ok) {
+      const err = await postRes.json();
       console.error("Discord API error:", err);
       return res.status(502).json({ error: "Discord API rejected the message", detail: err });
+    }
+
+    const posted = await postRes.json();
+
+    // Save message ID so future shares edit this message instead of posting new
+    if (pool) {
+      await pool.query(
+        `INSERT INTO channel_daily_message (channel_id, date, message_id)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (channel_id, date) DO NOTHING`,
+        [channelId, today, posted.id]
+      );
     }
 
     res.json({ success: true });
