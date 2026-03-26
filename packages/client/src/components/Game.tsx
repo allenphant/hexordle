@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { TileState } from "../lib/evaluate";
 import { AuthData, discordSdk } from "../discordSdk";
 import { useGameState } from "../hooks/useGameState";
 import { useStats } from "../hooks/useStats";
@@ -8,15 +9,42 @@ import { Keyboard } from "./Keyboard";
 import { ResultModal } from "./ResultModal";
 import { SpectatorPanel } from "./SpectatorPanel";
 
+const TODAY = new Date().toISOString().split("T")[0];
+
+export interface GuildRecord {
+  userId: string;
+  username: string;
+  evaluations: TileState[][];
+  completed: boolean;
+  won: boolean;
+}
+
 interface GameProps {
   auth: AuthData;
 }
 
 export function Game({ auth }: GameProps) {
-  const [state, actions] = useGameState();
+  const guildId = discordSdk?.guildId ?? undefined;
+  const username = auth.user.global_name ?? auth.user.username;
+  const [state, actions] = useGameState(auth.user.id, guildId, username);
   const { stats, recordGame } = useStats();
   const { remotePlayers, sendGuess } = useMultiplayer(auth);
   const [showResult, setShowResult] = useState(false);
+  const [guildRecords, setGuildRecords] = useState<GuildRecord[]>([]);
+
+  // Fetch all guild members' daily records (refresh every 30s)
+  useEffect(() => {
+    if (!guildId) return;
+    const fetch_ = () => {
+      fetch(`/.proxy/api/guild-progress?guildId=${guildId}&date=${TODAY}`)
+        .then((r) => r.json())
+        .then(setGuildRecords)
+        .catch(() => {});
+    };
+    fetch_();
+    const id = setInterval(fetch_, 30_000);
+    return () => clearInterval(id);
+  }, [guildId]);
 
   // Track previous guesses count to detect new guesses and send to spectators
   const prevGuessCount = useRef(state.guesses.length);
@@ -66,8 +94,12 @@ export function Game({ auth }: GameProps) {
           pendingEvaluation={state.pendingEvaluation}
         />
 
-        {remotePlayers.length > 0 && (
-          <SpectatorPanel players={remotePlayers} />
+        {(remotePlayers.length > 0 || guildRecords.length > 0) && (
+          <SpectatorPanel
+            players={remotePlayers}
+            guildRecords={guildRecords}
+            myUserId={auth.user.id}
+          />
         )}
       </div>
 

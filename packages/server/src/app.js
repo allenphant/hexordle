@@ -26,14 +26,23 @@ async function initDb() {
   if (!pool) { console.log("[DB] No DATABASE_URL — skipping DB init"); return; }
   await pool.query(`
     CREATE TABLE IF NOT EXISTS user_progress (
-      user_id   TEXT NOT NULL,
-      date      TEXT NOT NULL,
-      guesses   JSONB NOT NULL DEFAULT '[]',
+      user_id     TEXT NOT NULL,
+      date        TEXT NOT NULL,
+      guesses     JSONB NOT NULL DEFAULT '[]',
       evaluations JSONB NOT NULL DEFAULT '[]',
-      completed BOOLEAN NOT NULL DEFAULT false,
-      won       BOOLEAN NOT NULL DEFAULT false,
+      completed   BOOLEAN NOT NULL DEFAULT false,
+      won         BOOLEAN NOT NULL DEFAULT false,
+      guild_id    TEXT,
+      username    TEXT,
       PRIMARY KEY (user_id, date)
     )
+  `);
+  // Migrate existing tables that don't have guild_id / username yet
+  await pool.query(`ALTER TABLE user_progress ADD COLUMN IF NOT EXISTS guild_id TEXT`);
+  await pool.query(`ALTER TABLE user_progress ADD COLUMN IF NOT EXISTS username TEXT`);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_guild_date
+    ON user_progress (guild_id, date) WHERE guild_id IS NOT NULL
   `);
   console.log("[DB] Table ready");
 }
@@ -138,21 +147,49 @@ app.get("/api/progress", async (req, res) => {
 
 app.post("/api/progress", async (req, res) => {
   if (!pool) return res.json({ ok: true });
-  const { userId, date, guesses, evaluations, completed, won } = req.body;
+  const { userId, date, guesses, evaluations, completed, won, guildId, username } = req.body;
   if (!userId || !date) return res.status(400).json({ error: "userId and date required" });
   try {
     await pool.query(
-      `INSERT INTO user_progress (user_id, date, guesses, evaluations, completed, won)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO user_progress (user_id, date, guesses, evaluations, completed, won, guild_id, username)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        ON CONFLICT (user_id, date) DO UPDATE
        SET guesses = EXCLUDED.guesses, evaluations = EXCLUDED.evaluations,
-           completed = EXCLUDED.completed, won = EXCLUDED.won`,
-      [userId, date, JSON.stringify(guesses), JSON.stringify(evaluations), completed, won]
+           completed = EXCLUDED.completed, won = EXCLUDED.won,
+           guild_id = COALESCE(EXCLUDED.guild_id, user_progress.guild_id),
+           username = COALESCE(EXCLUDED.username, user_progress.username)`,
+      [userId, date, JSON.stringify(guesses), JSON.stringify(evaluations), completed, won, guildId ?? null, username ?? null]
     );
     res.json({ ok: true });
   } catch (err) {
     console.error("[DB] Error saving progress:", err);
     res.json({ ok: true }); // fail silently — game continues
+  }
+});
+
+// ─── Guild Daily Progress (all members who played today) ─────────────────────
+app.get("/api/guild-progress", async (req, res) => {
+  if (!pool) return res.json([]);
+  const { guildId, date } = req.query;
+  if (!guildId || !date) return res.status(400).json({ error: "guildId and date required" });
+  try {
+    const result = await pool.query(
+      `SELECT user_id, username, evaluations, completed, won
+       FROM user_progress
+       WHERE guild_id = $1 AND date = $2
+       ORDER BY completed DESC, array_length(ARRAY(SELECT * FROM jsonb_array_elements(guesses)), 1) ASC`,
+      [guildId, date]
+    );
+    res.json(result.rows.map((r) => ({
+      userId: r.user_id,
+      username: r.username ?? "Player",
+      evaluations: r.evaluations,
+      completed: r.completed,
+      won: r.won,
+    })));
+  } catch (err) {
+    console.error("[DB] Error loading guild progress:", err);
+    res.json([]);
   }
 });
 
@@ -200,7 +237,7 @@ app.post("/api/post-result", async (req, res) => {
   if (!botToken) return res.status(503).json({ error: "BOT_TOKEN not configured" });
 
   const grid = evaluations
-    .map((row) => row.map((s) => GRID_EMOJI[s] ?? "⬛").join(""))
+    .map((row) => row.map((s) => GRID_EMOJI[s] ?? "⬛").join(" "))
     .join("\n");
   const score = won ? guessCount : "X";
 
