@@ -73,17 +73,6 @@ export function Game({ auth }: GameProps) {
     <div className="game">
       <header className="header">
         <h1>Hexordle</h1>
-        <div className="mode-tabs">
-          {([5, 6, 7] as const).map((n) => (
-            <button
-              key={n}
-              className={`mode-tab${wordLength === n ? " mode-tab--active" : ""}`}
-              onClick={() => setWordLength(n)}
-            >
-              {n}
-            </button>
-          ))}
-        </div>
         <button
           className="stats-icon"
           onClick={() => state.gameStatus !== "playing" && setShowResult(true)}
@@ -97,6 +86,20 @@ export function Game({ auth }: GameProps) {
       {state.toast && <div className="toast">{state.toast}</div>}
 
       <div className="game-body">
+        {/* Vertical mode tabs — left sidebar */}
+        <div className="mode-tabs-v">
+          {([5, 6, 7] as const).map((n) => (
+            <button
+              key={n}
+              className={`mode-tab${wordLength === n ? " mode-tab--active" : ""}`}
+              onClick={() => setWordLength(n)}
+              aria-label={`${n}-letter mode`}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
+
         {/* Board + Keyboard always together in a centered column */}
         <div className="game-center">
           <Board

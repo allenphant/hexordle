@@ -13,6 +13,8 @@
   --tile-gap: 5px;
   --key-height: 54px;
   --header-height: 50px;
+  /* Width of the vertical mode-tabs sidebar */
+  --sidebar-w: 40px;
 }
 
 * {
@@ -23,7 +25,9 @@
 
 html, body {
   height: 100%;
-  max-height: 100vh;
+  /* dvh accounts for browser chrome correctly on mobile */
+  height: 100dvh;
+  max-height: 100dvh;
 }
 
 body {
@@ -40,6 +44,9 @@ body {
   justify-content: center;
   align-items: center;
   height: 100vh;
+  height: 100dvh;
+  /* push content below system status bar */
+  padding-top: env(safe-area-inset-top, 0px);
   font-size: 1.2rem;
 }
 
@@ -48,27 +55,67 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  height: 100dvh; /* preferred: dynamic viewport height */
   overflow: hidden;
-  padding-top: env(safe-area-inset-top);
+  /* System status bar / notch safe area */
+  padding-top: env(safe-area-inset-top, 0px);
 }
 
-/* Row: game-center + spectator aside */
+/* Row: mode-tabs-v + game-center + (optional spectator) */
 .game-body {
   display: flex;
+  flex-direction: row;
   flex: 1;
   min-height: 0;
   justify-content: center;
   overflow: hidden;
 }
 
-/* Center column: board + keyboard always together and centered */
+/* ─── Vertical mode-tabs sidebar ─── */
+.mode-tabs-v {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  width: var(--sidebar-w);
+  padding: 0 4px;
+}
+
+.mode-tab {
+  background: transparent;
+  border: 2px solid var(--color-absent);
+  color: var(--color-text);
+  border-radius: 6px;
+  width: 32px;
+  padding: 10px 0;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  opacity: 0.45;
+  line-height: 1;
+  transition: opacity 0.15s, border-color 0.15s;
+}
+
+.mode-tab--active {
+  border-color: var(--color-text);
+  opacity: 1;
+}
+
+.mode-tab:active {
+  filter: brightness(0.8);
+}
+
+/* ─── Center column: board + keyboard ─── */
+/* Width reserves space for sidebar; tiles scale via breakpoints below */
 .game-center {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  width: min(480px, 100vw);
+  width: min(480px, calc(100vw - var(--sidebar-w)));
   padding: 0 4px;
   height: 100%;
   min-height: 0;
@@ -112,30 +159,6 @@ body {
   cursor: pointer;
   font-size: 1.3rem;
   padding: 4px;
-}
-
-.mode-tabs {
-  display: flex;
-  gap: 6px;
-  justify-content: center;
-  padding: 4px 0;
-}
-
-.mode-tab {
-  background: transparent;
-  border: 1px solid var(--color-absent);
-  color: var(--color-text);
-  border-radius: 4px;
-  padding: 2px 14px;
-  font-size: 0.85rem;
-  font-weight: 700;
-  cursor: pointer;
-  opacity: 0.6;
-}
-
-.mode-tab--active {
-  border-color: var(--color-text);
-  opacity: 1;
 }
 
 /* ─── Toast ─── */
@@ -565,5 +588,18 @@ body {
   .keyboard { padding: 3px 0 calc(env(safe-area-inset-bottom, 0px) + 28px); gap: 4px; }
 }
 
-/* Keyboard bottom padding can be smaller when spectator strip is present,
-   but we can't detect that in CSS — keep a modest value that works both ways */
+/* ─── Responsive — width breakpoints (for sidebar + 7-letter mode on phones) ─── */
+
+/* Most phones (≤480px wide): reduce default tile from 58px to fit 7 tiles + sidebar */
+/* 7 × 46px + 6 × 4px gap = 346px; game-center on 480px phone = 440px → fits */
+@media (max-width: 480px) {
+  :root { --tile-size: 46px; --tile-gap: 4px; }
+  .mode-tab { padding: 8px 0; font-size: 0.8rem; }
+}
+
+/* Narrow phones ≤390px (iPhone SE/13 mini): 7 × 42px + 6 × 3px = 312px;
+   game-center on 390px phone = 350px → fits */
+@media (max-width: 390px) {
+  :root { --tile-size: 42px; --tile-gap: 3px; --key-height: 48px; }
+  .mode-tab { padding: 6px 0; font-size: 0.75rem; width: 28px; }
+}
