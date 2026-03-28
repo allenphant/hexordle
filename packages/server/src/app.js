@@ -124,6 +124,9 @@ async function initDb() {
       END IF;
     END $$
   `);
+  // ONE-TIME CLEANUP: clear today's channel_daily_message so new channel preference takes effect
+  await pool.query(`DELETE FROM channel_daily_message WHERE date = '2026-03-28'`);
+  console.log("[DB] Cleared today's channel_daily_message");
   console.log("[DB] Table ready");
 }
 
