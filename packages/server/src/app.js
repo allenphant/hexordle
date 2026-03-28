@@ -136,9 +136,10 @@ function roundedRect(ctx, x, y, w, h, r) {
 
 async function buildProgressImage(players, dayNumber, wordLength = 6) {
   if (!createCanvas || !loadImage) return null;
-  const gridPx = wordLength * TILE_SIZE + (wordLength - 1) * TILE_GAP;
-  const cardW = gridPx + CARD_PAD * 2;
-  const cardH = HEADER_H + gridPx + CARD_PAD * 2;
+  const gridW = wordLength * TILE_SIZE + (wordLength - 1) * TILE_GAP; // width varies by mode
+  const gridH = 6 * TILE_SIZE + 5 * TILE_GAP;                        // height always 6 rows
+  const cardW = gridW + CARD_PAD * 2;
+  const cardH = HEADER_H + gridH + CARD_PAD * 2;
   const canvasW = players.length * (cardW + CARD_SPACING) - CARD_SPACING + CARD_PAD * 2;
   const canvasH = cardH + CARD_PAD * 2;
 
