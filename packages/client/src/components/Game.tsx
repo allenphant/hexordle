@@ -63,8 +63,6 @@ export function Game({ auth }: GameProps) {
     }
   }, [state.gameStatus]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const hasSpectators = remotePlayers.length > 0 || guildRecords.length > 0;
-
   return (
     <div className="game">
       <header className="header">
@@ -122,16 +120,14 @@ export function Game({ auth }: GameProps) {
         </div>
       </div>
 
-      {hasSpectators && (
-        <aside className="spectator-aside">
-          <SpectatorPanel
-            players={remotePlayers}
-            guildRecords={guildRecords}
-            myUserId={auth.user.id}
-            wordLength={wordLength}
-          />
-        </aside>
-      )}
+      <aside className="spectator-aside">
+        <SpectatorPanel
+          players={remotePlayers}
+          guildRecords={guildRecords}
+          myUserId={auth.user.id}
+          wordLength={wordLength}
+        />
+      </aside>
 
       {showResult && state.gameStatus !== "playing" && (
         <ResultModal
