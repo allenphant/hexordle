@@ -291,7 +291,7 @@ async function autoEnsureGuildMessage(guildId, date, dayNumber, botToken, wordLe
       channelId = prev.rows[0]?.channel_id ?? null;
     }
 
-    // 2. Fall back to the guild's first text channel
+    // 2. Find the preferred channel ("窩斗"), fall back to first text channel
     if (!channelId) {
       const chRes = await fetch(
         `https://discord.com/api/v10/guilds/${guildId}/channels`,
@@ -299,10 +299,11 @@ async function autoEnsureGuildMessage(guildId, date, dayNumber, botToken, wordLe
       );
       if (chRes.ok) {
         const all = await chRes.json();
-        const first = all
+        const textChannels = all
           .filter((c) => c.type === 0 || c.type === 5)
-          .sort((a, b) => a.position - b.position)[0];
-        if (first) channelId = first.id;
+          .sort((a, b) => a.position - b.position);
+        const preferred = textChannels.find((c) => c.name === "窩斗");
+        channelId = (preferred ?? textChannels[0])?.id ?? null;
       }
     }
 
