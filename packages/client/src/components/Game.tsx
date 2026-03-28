@@ -26,7 +26,6 @@ export function Game({ auth }: GameProps) {
   const [showResult, setShowResult] = useState(false);
   const [guildRecords, setGuildRecords] = useState<GuildRecord[]>([]);
 
-  // Fetch all guild members' daily records (refresh every 30s)
   useEffect(() => {
     if (!guildId) return;
     const fetch_ = () => {
@@ -40,13 +39,11 @@ export function Game({ auth }: GameProps) {
     return () => clearInterval(id);
   }, [guildId, wordLength]);
 
-  // Close result modal and reset prevGuessCount when switching modes
   useEffect(() => {
     setShowResult(false);
     prevGuessCount.current = 0;
   }, [wordLength]);
 
-  // Track previous guesses count to detect new guesses and send to spectators
   const prevGuessCount = useRef(state.guesses.length);
   useEffect(() => {
     const newCount = state.guesses.length;
@@ -57,7 +54,6 @@ export function Game({ auth }: GameProps) {
     prevGuessCount.current = newCount;
   }, [state.guesses.length, state.evaluations, sendGuess]);
 
-  // Record stats and show result modal when game ends
   useEffect(() => {
     if (state.gameStatus !== "playing") {
       recordGame(state.gameStatus, state.guesses.length, state.dayNumber);
@@ -86,32 +82,38 @@ export function Game({ auth }: GameProps) {
       {state.toast && <div className="toast">{state.toast}</div>}
 
       <div className="game-body">
-        {/* Vertical mode tabs — left sidebar */}
-        <div className="mode-tabs-v">
-          {([5, 6, 7] as const).map((n) => (
-            <button
-              key={n}
-              className={`mode-tab${wordLength === n ? " mode-tab--active" : ""}`}
-              onClick={() => setWordLength(n)}
-              aria-label={`${n}-letter mode`}
-            >
-              {n}
-            </button>
-          ))}
-        </div>
-
-        {/* Board + Keyboard always together in a centered column */}
         <div className="game-center">
-          <Board
-            guesses={state.guesses}
-            evaluations={state.evaluations}
-            currentGuess={state.currentGuess}
-            shakeRow={state.shakeRow}
-            revealRow={state.revealRow}
-            pendingGuess={state.pendingGuess}
-            pendingEvaluation={state.pendingEvaluation}
-            wordLength={wordLength}
-          />
+
+          {/* Board row: tabs fill the natural left margin beside the board */}
+          <div className="board-row">
+            <div className="mode-tabs-v">
+              {([5, 6, 7] as const).map((n) => (
+                <button
+                  key={n}
+                  className={`mode-tab${wordLength === n ? " mode-tab--active" : ""}`}
+                  onClick={() => setWordLength(n)}
+                  aria-label={`${n}-letter mode`}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+
+            <Board
+              guesses={state.guesses}
+              evaluations={state.evaluations}
+              currentGuess={state.currentGuess}
+              shakeRow={state.shakeRow}
+              revealRow={state.revealRow}
+              pendingGuess={state.pendingGuess}
+              pendingEvaluation={state.pendingEvaluation}
+              wordLength={wordLength}
+            />
+
+            {/* Mirror spacer keeps the board visually centered */}
+            <div className="mode-tabs-mirror" aria-hidden="true" />
+          </div>
+
           <Keyboard
             keyboardColors={state.keyboardColors}
             onKey={actions.onKey}
@@ -120,7 +122,6 @@ export function Game({ auth }: GameProps) {
         </div>
       </div>
 
-      {/* Spectator strip — horizontal scroll below keyboard, all screen sizes */}
       {hasSpectators && (
         <aside className="spectator-aside">
           <SpectatorPanel

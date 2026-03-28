@@ -13,8 +13,6 @@
   --tile-gap: 5px;
   --key-height: 54px;
   --header-height: 50px;
-  /* Width of the vertical mode-tabs sidebar */
-  --sidebar-w: 40px;
 }
 
 * {
@@ -25,7 +23,6 @@
 
 html, body {
   height: 100%;
-  /* dvh accounts for browser chrome correctly on mobile */
   height: 100dvh;
   max-height: 100dvh;
 }
@@ -43,9 +40,7 @@ body {
   display: flex;
   justify-content: center;
   align-items: center;
-  height: 100vh;
   height: 100dvh;
-  /* push content below system status bar */
   padding-top: env(safe-area-inset-top, 0px);
   font-size: 1.2rem;
 }
@@ -55,74 +50,35 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  height: 100dvh; /* preferred: dynamic viewport height */
+  height: 100dvh;
   overflow: hidden;
-  /* System status bar / notch safe area */
   padding-top: env(safe-area-inset-top, 0px);
 }
 
-/* Row: mode-tabs-v + game-center + (optional spectator) */
+/* game-body: single centered column */
 .game-body {
   display: flex;
-  flex-direction: row;
   flex: 1;
   min-height: 0;
   justify-content: center;
   overflow: hidden;
 }
 
-/* ─── Vertical mode-tabs sidebar ─── */
-.mode-tabs-v {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-  width: var(--sidebar-w);
-  padding: 0 4px;
-}
-
-.mode-tab {
-  background: transparent;
-  border: 2px solid var(--color-absent);
-  color: var(--color-text);
-  border-radius: 6px;
-  width: 32px;
-  padding: 10px 0;
-  font-size: 0.9rem;
-  font-weight: 700;
-  cursor: pointer;
-  opacity: 0.45;
-  line-height: 1;
-  transition: opacity 0.15s, border-color 0.15s;
-}
-
-.mode-tab--active {
-  border-color: var(--color-text);
-  opacity: 1;
-}
-
-.mode-tab:active {
-  filter: brightness(0.8);
-}
-
-/* ─── Center column: board + keyboard ─── */
-/* Width reserves space for sidebar; tiles scale via breakpoints below */
+/* Center column: board-row + keyboard */
 .game-center {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  width: min(480px, calc(100vw - var(--sidebar-w)));
+  width: min(480px, 100vw);
   padding: 0 4px;
   height: 100%;
   min-height: 0;
   overflow: hidden;
 }
 
-/* Spectator: horizontal scroll strip below keyboard */
+/* Spectator: horizontal scroll strip */
 .spectator-aside {
   flex-shrink: 0;
   overflow-x: auto;
@@ -183,13 +139,72 @@ body {
   to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
+/* ─── Board row: [mode-tabs] [board] [mirror] ─── */
+/* The board stays at natural (centered) width; tabs fill the left margin */
+.board-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  /* fill game-center width so flex children share space correctly */
+  width: 100%;
+  flex: 0 0 auto;
+}
+
+/* Tabs: grow to fill whatever space exists left of the board */
+.mode-tabs-v {
+  flex: 1 1 0;
+  min-width: 0;        /* allow shrinking when 7-letter board leaves little margin */
+  max-width: 52px;     /* don't grow too wide on 5-letter mode */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 2px;
+  align-self: stretch; /* match board height so buttons are vertically centered */
+}
+
+/* Mirror: same flex rules as tabs, keeps board centered */
+.mode-tabs-mirror {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 52px;
+}
+
+/* Mode tab button: width fills available space in tabs column */
+.mode-tab {
+  width: 100%;
+  min-width: 14px;   /* absolute minimum — single digit still visible */
+  background: transparent;
+  border: 2px solid var(--color-absent);
+  color: var(--color-text);
+  border-radius: 5px;
+  padding: 10px 0;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  opacity: 0.45;
+  line-height: 1;
+  transition: opacity 0.15s, border-color 0.15s;
+  overflow: hidden;  /* if very narrow, hides text rather than breaking layout */
+}
+
+.mode-tab--active {
+  border-color: var(--color-text);
+  opacity: 1;
+}
+
+.mode-tab:active {
+  filter: brightness(0.75);
+}
+
 /* ─── Board ─── */
 .board {
   display: flex;
   flex-direction: column;
   gap: var(--tile-gap);
   padding: 8px 0;
-  flex: 0 0 auto; /* natural size — game-center handles centering */
+  flex: 0 0 auto;
 }
 
 .row {
@@ -229,20 +244,9 @@ body {
   animation: pop 0.1s ease;
 }
 
-.tile[data-state="correct"] {
-  background-color: var(--color-correct);
-  border-color: var(--color-correct);
-}
-
-.tile[data-state="present"] {
-  background-color: var(--color-present);
-  border-color: var(--color-present);
-}
-
-.tile[data-state="absent"] {
-  background-color: var(--color-absent);
-  border-color: var(--color-absent);
-}
+.tile[data-state="correct"] { background-color: var(--color-correct); border-color: var(--color-correct); }
+.tile[data-state="present"] { background-color: var(--color-present); border-color: var(--color-present); }
+.tile[data-state="absent"]  { background-color: var(--color-absent);  border-color: var(--color-absent); }
 
 @keyframes pop {
   0%   { transform: scale(1); }
@@ -250,7 +254,7 @@ body {
   100% { transform: scale(1); }
 }
 
-/* Flip animation for revealed tiles */
+/* Flip animation */
 .tile--reveal {
   animation: flip var(--reveal-delay, 0ms) step-end forwards,
              flip-in 0.25s ease calc(var(--reveal-delay, 0ms)) forwards,
@@ -272,7 +276,6 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  /* bottom: leave room for Discord voice overlay + safe area */
   padding: 8px 0 calc(env(safe-area-inset-bottom, 0px) + 64px);
   width: 100%;
   flex-shrink: 0;
@@ -295,14 +298,13 @@ body {
   font-weight: 700;
   cursor: pointer;
   text-transform: uppercase;
-  /* flex: 1 with no min/max lets keys fill the row and shrink on narrow screens */
   flex: 1 1 0%;
   min-width: 0;
   transition: background-color 0.2s ease;
 }
 
 .key--wide {
-  flex: 1.55 1 0%; /* ENTER / ⌫ are ~55% wider than letter keys */
+  flex: 1.55 1 0%;
   font-size: 0.7rem;
 }
 
@@ -310,9 +312,7 @@ body {
 .key[data-state="present"]  { background-color: var(--color-present); }
 .key[data-state="absent"]   { background-color: var(--color-absent); }
 
-.key:active {
-  filter: brightness(0.85);
-}
+.key:active { filter: brightness(0.85); }
 
 /* ─── Result Modal ─── */
 .modal-overlay {
@@ -349,14 +349,10 @@ body {
 
 .modal-close {
   position: absolute;
-  top: 12px;
-  right: 12px;
-  background: none;
-  border: none;
+  top: 12px; right: 12px;
+  background: none; border: none;
   color: var(--color-text);
-  font-size: 1rem;
-  cursor: pointer;
-  opacity: 0.6;
+  font-size: 1rem; cursor: pointer; opacity: 0.6;
 }
 
 .modal-title {
@@ -388,16 +384,8 @@ body {
   gap: 2px;
 }
 
-.stat-value {
-  font-size: 1.6rem;
-  font-weight: 700;
-}
-
-.stat-label {
-  font-size: 0.65rem;
-  text-transform: uppercase;
-  opacity: 0.75;
-}
+.stat-value { font-size: 1.6rem; font-weight: 700; }
+.stat-label { font-size: 0.65rem; text-transform: uppercase; opacity: 0.75; }
 
 .modal-bottom {
   display: flex;
@@ -415,160 +403,84 @@ body {
   gap: 12px;
 }
 
-.next-word {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.next-label {
-  font-size: 0.65rem;
-  text-transform: uppercase;
-  opacity: 0.75;
-}
-
-.next-countdown {
-  font-size: 1.4rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
+.next-word { display: flex; flex-direction: column; gap: 4px; }
+.next-label { font-size: 0.65rem; text-transform: uppercase; opacity: 0.75; }
+.next-countdown { font-size: 1.4rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 
 .share-btn {
-  border: none;
-  border-radius: 6px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: filter 0.15s;
-  white-space: nowrap;
+  border: none; border-radius: 6px;
+  font-weight: 700; cursor: pointer;
+  transition: filter 0.15s; white-space: nowrap;
 }
 
-.share-btn:hover:not(:disabled) {
-  filter: brightness(1.1);
-}
+.share-btn:hover:not(:disabled) { filter: brightness(1.1); }
+.share-btn:disabled { opacity: 0.7; cursor: default; }
 
-.share-btn:disabled {
-  opacity: 0.7;
-  cursor: default;
-}
-
-/* Small "Copy" button next to timer */
 .share-btn--copy {
   background-color: var(--color-absent);
-  color: white;
-  padding: 10px 18px;
-  font-size: 0.85rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  color: white; padding: 10px 18px;
+  font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em;
 }
 
-/* Full-width "Share to Channel" button */
 .share-btn--channel {
   background-color: var(--color-correct);
-  color: white;
-  padding: 14px 24px;
-  font-size: 1rem;
-  width: 100%;
-  text-align: center;
+  color: white; padding: 14px 24px;
+  font-size: 1rem; width: 100%; text-align: center;
 }
 
-.modal-post-error {
-  font-size: 0.75rem;
-  color: #ff6b6b;
-  text-align: center;
-  margin: 0;
-}
+.modal-post-error { font-size: 0.75rem; color: #ff6b6b; text-align: center; margin: 0; }
 
 .channel-select {
-  width: 100%;
-  padding: 10px 12px;
-  background: var(--color-absent);
-  color: var(--color-text);
-  border: 1px solid #555;
-  border-radius: 6px;
-  font-size: 0.9rem;
-  cursor: pointer;
-  appearance: none;
+  width: 100%; padding: 10px 12px;
+  background: var(--color-absent); color: var(--color-text);
+  border: 1px solid #555; border-radius: 6px;
+  font-size: 0.9rem; cursor: pointer; appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23fff' d='M6 8L0 0h12z'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 12px center;
-  padding-right: 32px;
+  background-repeat: no-repeat; background-position: right 12px center; padding-right: 32px;
 }
 
-/* ─── Spectator Panel (horizontal scroll row of cards) ─── */
+/* ─── Spectator Panel ─── */
 .spectator-panel {
-  display: flex;
-  flex-direction: row;
-  gap: 10px;
-  min-width: max-content; /* prevents cards from wrapping */
+  display: flex; flex-direction: row;
+  gap: 10px; min-width: max-content;
 }
 
-/* Individual player card */
 .spec-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  padding: 6px 4px 4px;
-  border-radius: 8px;
-  background: #1a1d2e;
-  min-width: 68px;
+  display: flex; flex-direction: column;
+  align-items: center; gap: 3px;
+  padding: 6px 4px 4px; border-radius: 8px;
+  background: #1a1d2e; min-width: 68px;
 }
 
-.spec-card--live {
-  outline: 1px solid var(--color-correct);
-}
+.spec-card--live { outline: 1px solid var(--color-correct); }
 
-/* Circular avatar */
 .spec-avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  object-fit: cover;
-  flex-shrink: 0;
+  width: 36px; height: 36px;
+  border-radius: 50%; object-fit: cover; flex-shrink: 0;
 }
 
 .spec-avatar--fallback {
-  background: var(--color-absent);
-  color: var(--color-text);
-  font-size: 0.9rem;
-  font-weight: 700;
-  align-items: center;
-  justify-content: center;
+  background: var(--color-absent); color: var(--color-text);
+  font-size: 0.9rem; font-weight: 700;
+  align-items: center; justify-content: center;
 }
 
-/* Score text */
-.spec-score {
-  font-size: 0.65rem;
-  font-weight: 600;
-  opacity: 0.75;
-  white-space: nowrap;
-}
+.spec-score { font-size: 0.65rem; font-weight: 600; opacity: 0.75; white-space: nowrap; }
 
-/* Mini grid */
-.mini-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.mini-row {
-  display: flex;
-  gap: 2px;
-}
+.mini-grid { display: flex; flex-direction: column; gap: 2px; }
+.mini-row  { display: flex; gap: 2px; }
 
 .mini-tile {
-  width: 9px;
-  height: 9px;
+  width: 9px; height: 9px;
   border: 1px solid var(--color-tile-border-empty);
-  display: inline-block;
-  border-radius: 1px;
+  display: inline-block; border-radius: 1px;
 }
 
 .mini-tile[data-state="correct"] { background-color: var(--color-correct); border-color: var(--color-correct); }
 .mini-tile[data-state="present"] { background-color: var(--color-present); border-color: var(--color-present); }
 .mini-tile[data-state="absent"]  { background-color: var(--color-absent);  border-color: var(--color-absent);  }
 
-/* ─── Responsive — height breakpoints ─── */
+/* ─── Responsive — height ─── */
 
 @media (max-height: 660px) {
   :root { --tile-size: 50px; --key-height: 46px; }
@@ -588,18 +500,19 @@ body {
   .keyboard { padding: 3px 0 calc(env(safe-area-inset-bottom, 0px) + 28px); gap: 4px; }
 }
 
-/* ─── Responsive — width breakpoints (for sidebar + 7-letter mode on phones) ─── */
+/* ─── Responsive — width (shrink tiles so 7-letter board fits and leaves side margin) ─── */
+/* Tile budget: available = 100vw - 8px padding
+   7 tiles need: 7×tile + 6×gap ≤ available
+   Side margin for tabs: (available - board) / 2                                         */
 
-/* Most phones (≤480px wide): reduce default tile from 58px to fit 7 tiles + sidebar */
-/* 7 × 46px + 6 × 4px gap = 346px; game-center on 480px phone = 440px → fits */
+/* ≤480px phones (e.g. iPhone 14 Pro 393px, Pixel 7 412px):
+   46px tiles → 7L board = 346px; on 390px: margin = (382-346)/2 = 18px each side       */
 @media (max-width: 480px) {
   :root { --tile-size: 46px; --tile-gap: 4px; }
-  .mode-tab { padding: 8px 0; font-size: 0.8rem; }
 }
 
-/* Narrow phones ≤390px (iPhone SE/13 mini): 7 × 42px + 6 × 3px = 312px;
-   game-center on 390px phone = 350px → fits */
+/* ≤390px very narrow (iPhone SE 375px, 13 mini 375px):
+   42px tiles → 7L board = 312px; on 375px: margin = (367-312)/2 ≈ 27px each side       */
 @media (max-width: 390px) {
-  :root { --tile-size: 42px; --tile-gap: 3px; --key-height: 48px; }
-  .mode-tab { padding: 6px 0; font-size: 0.75rem; width: 28px; }
+  :root { --tile-size: 42px; --tile-gap: 3px; }
 }
