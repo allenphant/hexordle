@@ -6,6 +6,7 @@ import { AuthData } from "../discordSdk";
 export interface RemotePlayer {
   userId: string;
   displayName: string;
+  avatarHash: string | null;
   evaluations: TileState[][];
 }
 
@@ -32,6 +33,7 @@ export function useMultiplayer(auth: AuthData) {
           instanceId,
           userId: auth.user.id,
           displayName: auth.user.global_name || auth.user.username,
+          avatarHash: auth.user.avatar ?? null,
         })
       );
     };
@@ -41,13 +43,13 @@ export function useMultiplayer(auth: AuthData) {
         const msg = JSON.parse(event.data);
 
         if (msg.type === "room_state") {
-          setRemotePlayers(msg.players);
+          setRemotePlayers(msg.players.map((p: RemotePlayer) => ({ ...p, avatarHash: p.avatarHash ?? null })));
         }
 
         if (msg.type === "player_joined") {
           setRemotePlayers((prev) => {
             if (prev.find((p) => p.userId === msg.userId)) return prev;
-            return [...prev, { userId: msg.userId, displayName: msg.displayName, evaluations: [] }];
+            return [...prev, { userId: msg.userId, displayName: msg.displayName, avatarHash: msg.avatarHash ?? null, evaluations: [] }];
           });
         }
 

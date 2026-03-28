@@ -510,15 +510,16 @@ app.get("/api/guild-progress", async (req, res) => {
   if (!guildId || !date) return res.status(400).json({ error: "guildId and date required" });
   try {
     const result = await pool.query(
-      `SELECT user_id, username, evaluations, completed, won
+      `SELECT user_id, username, avatar_hash, evaluations, completed, won
        FROM user_progress
        WHERE guild_id = $1 AND date = $2
-       ORDER BY completed DESC, array_length(ARRAY(SELECT * FROM jsonb_array_elements(guesses)), 1) ASC`,
+       ORDER BY completed DESC, jsonb_array_length(guesses) ASC`,
       [guildId, date]
     );
     res.json(result.rows.map((r) => ({
       userId: r.user_id,
       username: r.username ?? "Player",
+      avatarHash: r.avatar_hash ?? null,
       evaluations: r.evaluations,
       completed: r.completed,
       won: r.won,
@@ -694,16 +695,17 @@ wss.on("connection", (ws) => {
         instanceId = msg.instanceId;
         userId = msg.userId;
         const displayName = msg.displayName ?? "Player";
+        const avatarHash = msg.avatarHash ?? null;
 
         if (!rooms.has(instanceId)) rooms.set(instanceId, new Map());
         const room = rooms.get(instanceId);
 
-        room.set(userId, { ws, displayName, evaluations: [] });
+        room.set(userId, { ws, displayName, avatarHash, evaluations: [] });
 
         const roomSnapshot = getRoomSnapshot(room, userId);
         ws.send(JSON.stringify({ type: "room_state", players: roomSnapshot }));
 
-        broadcast(room, userId, { type: "player_joined", userId, displayName });
+        broadcast(room, userId, { type: "player_joined", userId, displayName, avatarHash });
       }
 
       if (msg.type === "guess" && instanceId && userId) {
@@ -751,7 +753,7 @@ function getRoomSnapshot(room, excludeUserId) {
   const players = [];
   for (const [uid, player] of room) {
     if (uid === excludeUserId) continue;
-    players.push({ userId: uid, displayName: player.displayName, evaluations: player.evaluations });
+    players.push({ userId: uid, displayName: player.displayName, avatarHash: player.avatarHash, evaluations: player.evaluations });
   }
   return players;
 }
