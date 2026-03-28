@@ -81,18 +81,20 @@ interface SpectatorPanelProps {
 }
 
 export function SpectatorPanel({ players, guildRecords, myUserId, wordLength }: SpectatorPanelProps) {
-  const liveIds = new Set(players.map((p) => p.userId));
+  // Only show live players in the current mode
+  const livePlayers = players.filter((p) => p.wordLength === wordLength);
+  const liveIds = new Set(livePlayers.map((p) => p.userId));
 
   // DB completed records — exclude self and anyone already in live list, filter by mode
   const completedRecords = guildRecords.filter(
     (r) => r.completed && r.userId !== myUserId && !liveIds.has(r.userId) && r.wordLength === wordLength
   );
 
-  if (players.length === 0 && completedRecords.length === 0) return null;
+  if (livePlayers.length === 0 && completedRecords.length === 0) return null;
 
   return (
     <div className="spectator-panel">
-      {players.map((p) => (
+      {livePlayers.map((p) => (
         <PlayerCard
           key={p.userId}
           userId={p.userId}

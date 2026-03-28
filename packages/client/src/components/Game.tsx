@@ -7,8 +7,9 @@ import { Board } from "./Board";
 import { Keyboard } from "./Keyboard";
 import { ResultModal } from "./ResultModal";
 import { SpectatorPanel, GuildRecord } from "./SpectatorPanel";
+import { getLocalDate } from "../lib/share";
 
-const TODAY = new Date().toISOString().split("T")[0];
+const TODAY = getLocalDate(); // local date, consistent with server progress keys
 
 interface GameProps {
   auth: AuthData;
@@ -22,7 +23,7 @@ export function Game({ auth }: GameProps) {
 
   const [state, actions] = useGameState(auth.user.id, guildId, username, auth.user.avatar, wordLength);
   const { stats, recordGame } = useStats(wordLength);
-  const { remotePlayers, sendGuess } = useMultiplayer(auth);
+  const { remotePlayers, sendProgress } = useMultiplayer(auth);
   const [showResult, setShowResult] = useState(false);
   const [guildRecords, setGuildRecords] = useState<GuildRecord[]>([]);
 
@@ -41,18 +42,26 @@ export function Game({ auth }: GameProps) {
 
   useEffect(() => {
     setShowResult(false);
-    prevGuessCount.current = 0;
   }, [wordLength]);
 
+  // Send full evaluations whenever guesses change or mode changes (server replaces, never accumulates)
   const prevGuessCount = useRef(state.guesses.length);
   useEffect(() => {
     const newCount = state.guesses.length;
-    if (newCount > prevGuessCount.current) {
-      const latestEval = state.evaluations[newCount - 1];
-      if (latestEval) sendGuess(latestEval);
+    if (newCount !== prevGuessCount.current) {
+      sendProgress(state.evaluations, wordLength);
     }
     prevGuessCount.current = newCount;
-  }, [state.guesses.length, state.evaluations, sendGuess]);
+  }, [state.guesses.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // On mode switch, broadcast the new mode's current state so peers see the reset
+  const prevWordLengthRef = useRef(wordLength);
+  useEffect(() => {
+    if (prevWordLengthRef.current !== wordLength) {
+      prevWordLengthRef.current = wordLength;
+      sendProgress(state.evaluations, wordLength);
+    }
+  }, [wordLength]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (state.gameStatus !== "playing") {

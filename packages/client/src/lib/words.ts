@@ -1,5 +1,17 @@
 import { getDayNumber } from "./share";
 
+// Deterministic Fisher-Yates shuffle with a LCG seed — same result on every client
+function seededShuffle<T>(arr: T[], seed: number): T[] {
+  const a = [...arr];
+  let s = seed >>> 0;
+  for (let i = a.length - 1; i > 0; i--) {
+    s = Math.imul(s, 1664525) + 1013904223 >>> 0;
+    const j = s % (i + 1);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 // ~2000 common 6-letter English words (curated answer list)
 export const ANSWERS: string[] = [
   "abroad","absent","accent","access","accord","across","action","actual","advise","affect",
@@ -334,8 +346,15 @@ export const VALID_WORDS: Set<string> = new Set([...ANSWERS, ...VALID_EXTRAS]);
 export const VALID_WORDS_5: Set<string> = new Set([...ANSWERS_5, ...VALID_EXTRAS_5]);
 export const VALID_WORDS_7: Set<string> = new Set([...ANSWERS_7, ...VALID_EXTRAS_7]);
 
+// Pre-shuffled answer lists (computed once at module load)
+const ANSWERS_SHUFFLED   = seededShuffle(ANSWERS,   0xc0ffee06);
+const ANSWERS_5_SHUFFLED = seededShuffle(ANSWERS_5, 0xc0ffee05);
+const ANSWERS_7_SHUFFLED = seededShuffle(ANSWERS_7, 0xc0ffee07);
+
 export function getDailyAnswer(wordLength = 6): string {
   const day = getDayNumber();
-  const answers = wordLength === 5 ? ANSWERS_5 : wordLength === 7 ? ANSWERS_7 : ANSWERS;
+  const answers = wordLength === 5 ? ANSWERS_5_SHUFFLED
+                : wordLength === 7 ? ANSWERS_7_SHUFFLED
+                : ANSWERS_SHUFFLED;
   return answers[((day - 1) % answers.length + answers.length) % answers.length];
 }

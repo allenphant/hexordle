@@ -757,7 +757,7 @@ wss.on("connection", (ws) => {
         if (!rooms.has(instanceId)) rooms.set(instanceId, new Map());
         const room = rooms.get(instanceId);
 
-        room.set(userId, { ws, displayName, avatarHash, evaluations: [] });
+        room.set(userId, { ws, displayName, avatarHash, evaluations: [], wordLength: 6 });
 
         const roomSnapshot = getRoomSnapshot(room, userId);
         ws.send(JSON.stringify({ type: "room_state", players: roomSnapshot }));
@@ -772,13 +772,16 @@ wss.on("connection", (ws) => {
         const player = room.get(userId);
         if (!player) return;
 
-        player.evaluations.push(msg.evaluation);
+        // Client sends full evaluations array — replace, never accumulate
+        player.evaluations = msg.evaluations ?? [];
+        player.wordLength = msg.wordLength ?? player.wordLength;
 
         broadcast(room, userId, {
           type: "player_guess",
           userId,
           displayName: player.displayName,
           evaluations: player.evaluations,
+          wordLength: player.wordLength,
         });
       }
     } catch {
@@ -810,7 +813,7 @@ function getRoomSnapshot(room, excludeUserId) {
   const players = [];
   for (const [uid, player] of room) {
     if (uid === excludeUserId) continue;
-    players.push({ userId: uid, displayName: player.displayName, avatarHash: player.avatarHash, evaluations: player.evaluations });
+    players.push({ userId: uid, displayName: player.displayName, avatarHash: player.avatarHash, evaluations: player.evaluations, wordLength: player.wordLength ?? 6 });
   }
   return players;
 }

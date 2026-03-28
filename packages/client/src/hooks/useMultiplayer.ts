@@ -8,6 +8,7 @@ export interface RemotePlayer {
   displayName: string;
   avatarHash: string | null;
   evaluations: TileState[][];
+  wordLength: number;
 }
 
 export function useMultiplayer(auth: AuthData) {
@@ -43,13 +44,13 @@ export function useMultiplayer(auth: AuthData) {
         const msg = JSON.parse(event.data);
 
         if (msg.type === "room_state") {
-          setRemotePlayers(msg.players.map((p: RemotePlayer) => ({ ...p, avatarHash: p.avatarHash ?? null })));
+          setRemotePlayers(msg.players.map((p: RemotePlayer) => ({ ...p, avatarHash: p.avatarHash ?? null, wordLength: p.wordLength ?? 6 })));
         }
 
         if (msg.type === "player_joined") {
           setRemotePlayers((prev) => {
             if (prev.find((p) => p.userId === msg.userId)) return prev;
-            return [...prev, { userId: msg.userId, displayName: msg.displayName, avatarHash: msg.avatarHash ?? null, evaluations: [] }];
+            return [...prev, { userId: msg.userId, displayName: msg.displayName, avatarHash: msg.avatarHash ?? null, evaluations: [], wordLength: msg.wordLength ?? 6 }];
           });
         }
 
@@ -57,7 +58,7 @@ export function useMultiplayer(auth: AuthData) {
           setRemotePlayers((prev) =>
             prev.map((p) =>
               p.userId === msg.userId
-                ? { ...p, evaluations: msg.evaluations }
+                ? { ...p, evaluations: msg.evaluations, wordLength: msg.wordLength ?? p.wordLength }
                 : p
             )
           );
@@ -87,13 +88,14 @@ export function useMultiplayer(auth: AuthData) {
     };
   }, [auth.user.id, auth.user.global_name, auth.user.username]);
 
-  const sendGuess = useCallback((evaluation: TileState[]) => {
+  // Send the full evaluations array for the current mode — server replaces, never accumulates
+  const sendProgress = useCallback((evaluations: TileState[][], wordLength: number) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(
-        JSON.stringify({ type: "guess", evaluation })
+        JSON.stringify({ type: "guess", evaluations, wordLength })
       );
     }
   }, []);
 
-  return { remotePlayers, sendGuess };
+  return { remotePlayers, sendProgress };
 }
