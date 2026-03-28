@@ -9,6 +9,7 @@ interface BoardProps {
   revealRow: number | null;
   pendingGuess?: string;
   pendingEvaluation?: TileState[];
+  wordLength?: number;
 }
 
 export function Board({
@@ -19,6 +20,7 @@ export function Board({
   revealRow,
   pendingGuess,
   pendingEvaluation,
+  wordLength = 6,
 }: BoardProps) {
   const rows = Array(6).fill(null);
 
@@ -34,6 +36,7 @@ export function Board({
               evaluation={pendingEvaluation}
               reveal
               shake={false}
+              wordLength={wordLength}
             />
           );
         }
@@ -47,6 +50,7 @@ export function Board({
               evaluation={evaluations[i]}
               reveal={false}
               shake={false}
+              wordLength={wordLength}
             />
           );
         }
@@ -58,12 +62,13 @@ export function Board({
               key={i}
               letters={currentGuess}
               shake={shakeRow}
+              wordLength={wordLength}
             />
           );
         }
 
         // Empty row
-        return <Row key={i} letters="" />;
+        return <Row key={i} letters="" wordLength={wordLength} />;
       })}
     </div>
   );

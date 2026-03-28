@@ -5,27 +5,70 @@ import { TileState } from "../lib/evaluate";
 export interface GuildRecord {
   userId: string;
   username: string;
+  avatarHash: string | null;
   evaluations: TileState[][];
   completed: boolean;
   won: boolean;
+  wordLength: number;
 }
 
-interface MiniGridProps {
+function avatarUrl(userId: string, avatarHash: string | null): string | null {
+  return avatarHash
+    ? `https://cdn.discordapp.com/avatars/${userId}/${avatarHash}.png?size=64`
+    : null;
+}
+
+interface PlayerCardProps {
+  userId: string;
+  displayName: string;
+  avatarHash: string | null;
   evaluations: TileState[][];
+  score: string;
+  wordLength: number;
+  isLive?: boolean;
 }
 
-function MiniGrid({ evaluations }: MiniGridProps) {
-  const rows = Array(6).fill(null);
+function PlayerCard({ userId, displayName, avatarHash, evaluations, score, wordLength, isLive }: PlayerCardProps) {
+  const url = avatarUrl(userId, avatarHash);
+  const initial = (displayName || "?")[0].toUpperCase();
+
   return (
-    <div className="mini-grid">
-      {rows.map((_, i) => (
-        <div key={i} className="mini-row">
-          {Array(6).fill(null).map((__, j) => {
-            const state = evaluations[i]?.[j];
-            return <span key={j} className="mini-tile" data-state={state ?? "empty"} />;
-          })}
-        </div>
-      ))}
+    <div className={`spec-card${isLive ? " spec-card--live" : ""}`}>
+      {/* Avatar */}
+      {url ? (
+        <img
+          className="spec-avatar"
+          src={url}
+          alt={displayName}
+          onError={(e) => {
+            const el = e.currentTarget;
+            el.style.display = "none";
+            const sib = el.nextElementSibling as HTMLElement | null;
+            if (sib) sib.style.display = "flex";
+          }}
+        />
+      ) : null}
+      <div
+        className="spec-avatar spec-avatar--fallback"
+        style={{ display: url ? "none" : "flex" }}
+      >
+        {initial}
+      </div>
+
+      {/* Score */}
+      <span className="spec-score">{score}</span>
+
+      {/* Mini grid — always 6 rows */}
+      <div className="mini-grid">
+        {Array(6).fill(null).map((_, i) => (
+          <div key={i} className="mini-row">
+            {Array(wordLength).fill(null).map((__, j) => {
+              const state = evaluations[i]?.[j];
+              return <span key={j} className="mini-tile" data-state={state ?? "empty"} />;
+            })}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -34,60 +77,44 @@ interface SpectatorPanelProps {
   players: RemotePlayer[];
   guildRecords: GuildRecord[];
   myUserId: string;
+  wordLength: number;
 }
 
-export function SpectatorPanel({ players, guildRecords, myUserId }: SpectatorPanelProps) {
-  // Live players currently in the same voice channel session
+export function SpectatorPanel({ players, guildRecords, myUserId, wordLength }: SpectatorPanelProps) {
   const liveIds = new Set(players.map((p) => p.userId));
 
-  // Completed guild records — exclude myself and anyone already shown as live
+  // DB completed records — exclude self and anyone already in live list, filter by mode
   const completedRecords = guildRecords.filter(
-    (r) => r.completed && r.userId !== myUserId && !liveIds.has(r.userId)
+    (r) => r.completed && r.userId !== myUserId && !liveIds.has(r.userId) && r.wordLength === wordLength
   );
 
   if (players.length === 0 && completedRecords.length === 0) return null;
 
   return (
     <div className="spectator-panel">
-      {players.length > 0 && (
-        <>
-          <h3 className="spectator-title">Others Playing</h3>
-          <div className="spectator-list">
-            {players.map((player) => (
-              <div key={player.userId} className="spectator-player">
-                <span className="spectator-name">
-                  {player.displayName}
-                  {player.evaluations.length > 0 && (
-                    <span className="spectator-guesses"> {player.evaluations.length}/6</span>
-                  )}
-                </span>
-                <MiniGrid evaluations={player.evaluations} />
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-
-      {completedRecords.length > 0 && (
-        <>
-          <h3 className="spectator-title" style={{ marginTop: players.length > 0 ? "12px" : 0 }}>
-            Today's Results
-          </h3>
-          <div className="spectator-list">
-            {completedRecords.map((r) => (
-              <div key={r.userId} className="spectator-player">
-                <span className="spectator-name">
-                  {r.username}
-                  <span className="spectator-guesses">
-                    {" "}{r.won ? `${r.evaluations.length}/6` : "X/6"}
-                  </span>
-                </span>
-                <MiniGrid evaluations={r.evaluations} />
-              </div>
-            ))}
-          </div>
-        </>
-      )}
+      {players.map((p) => (
+        <PlayerCard
+          key={p.userId}
+          userId={p.userId}
+          displayName={p.displayName}
+          avatarHash={p.avatarHash}
+          evaluations={p.evaluations}
+          score={p.evaluations.length > 0 ? `${p.evaluations.length}/6…` : "—"}
+          wordLength={wordLength}
+          isLive
+        />
+      ))}
+      {completedRecords.map((r) => (
+        <PlayerCard
+          key={r.userId}
+          userId={r.userId}
+          displayName={r.username}
+          avatarHash={r.avatarHash}
+          evaluations={r.evaluations}
+          score={r.won ? `${r.evaluations.length}/6` : "X/6"}
+          wordLength={r.wordLength}
+        />
+      ))}
     </div>
   );
 }

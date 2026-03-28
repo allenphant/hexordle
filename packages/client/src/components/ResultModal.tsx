@@ -11,6 +11,7 @@ interface ResultModalProps {
   evaluations: TileState[][];
   stats: Stats;
   dayNumber: number;
+  wordLength: number;
   channelId: string | null;
   guildId: string | null;
   userId: string;
@@ -56,7 +57,7 @@ async function copyToClipboard(text: string): Promise<boolean> {
 }
 
 export function ResultModal({
-  gameStatus, answer, evaluations, stats, dayNumber,
+  gameStatus, answer, evaluations, stats, dayNumber, wordLength,
   channelId, guildId, userId, username, avatarHash,
   onClose,
 }: ResultModalProps) {
@@ -96,7 +97,7 @@ export function ResultModal({
       .finally(() => setLoadingChannels(false));
   }, [guildId, channelId]);
 
-  const shareText = generateShareText(evaluations, gameStatus === "won");
+  const shareText = generateShareText(evaluations, gameStatus === "won", wordLength);
 
   const handleCopy = async () => {
     const ok = await copyToClipboard(shareText);
@@ -122,6 +123,7 @@ export function ResultModal({
           date: getLocalDate(),
           channelId: selectedChannelId,
           guildId,
+          wordLength,
         }),
       });
       if (res.ok) {

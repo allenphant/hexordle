@@ -17,8 +17,11 @@ interface GameProps {
 export function Game({ auth }: GameProps) {
   const guildId = discordSdk?.guildId ?? undefined;
   const username = auth.user.global_name ?? auth.user.username;
-  const [state, actions] = useGameState(auth.user.id, guildId, username, auth.user.avatar);
-  const { stats, recordGame } = useStats();
+
+  const [wordLength, setWordLength] = useState<5 | 6 | 7>(6);
+
+  const [state, actions] = useGameState(auth.user.id, guildId, username, auth.user.avatar, wordLength);
+  const { stats, recordGame } = useStats(wordLength);
   const { remotePlayers, sendGuess } = useMultiplayer(auth);
   const [showResult, setShowResult] = useState(false);
   const [guildRecords, setGuildRecords] = useState<GuildRecord[]>([]);
@@ -27,7 +30,7 @@ export function Game({ auth }: GameProps) {
   useEffect(() => {
     if (!guildId) return;
     const fetch_ = () => {
-      fetch(`/.proxy/api/guild-progress?guildId=${guildId}&date=${TODAY}`)
+      fetch(`/.proxy/api/guild-progress?guildId=${guildId}&date=${TODAY}&wordLength=${wordLength}`)
         .then((r) => r.json())
         .then(setGuildRecords)
         .catch(() => {});
@@ -35,7 +38,13 @@ export function Game({ auth }: GameProps) {
     fetch_();
     const id = setInterval(fetch_, 30_000);
     return () => clearInterval(id);
-  }, [guildId]);
+  }, [guildId, wordLength]);
+
+  // Close result modal and reset prevGuessCount when switching modes
+  useEffect(() => {
+    setShowResult(false);
+    prevGuessCount.current = 0;
+  }, [wordLength]);
 
   // Track previous guesses count to detect new guesses and send to spectators
   const prevGuessCount = useRef(state.guesses.length);
@@ -64,6 +73,17 @@ export function Game({ auth }: GameProps) {
     <div className="game">
       <header className="header">
         <h1>Hexordle</h1>
+        <div className="mode-tabs">
+          {([5, 6, 7] as const).map((n) => (
+            <button
+              key={n}
+              className={`mode-tab${wordLength === n ? " mode-tab--active" : ""}`}
+              onClick={() => setWordLength(n)}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
         <button
           className="stats-icon"
           onClick={() => state.gameStatus !== "playing" && setShowResult(true)}
@@ -87,6 +107,7 @@ export function Game({ auth }: GameProps) {
             revealRow={state.revealRow}
             pendingGuess={state.pendingGuess}
             pendingEvaluation={state.pendingEvaluation}
+            wordLength={wordLength}
           />
           <Keyboard
             keyboardColors={state.keyboardColors}
@@ -94,18 +115,19 @@ export function Game({ auth }: GameProps) {
             isValidating={state.isValidating}
           />
         </div>
-
-        {/* Spectator panel: right sidebar on desktop, bottom strip on mobile */}
-        {hasSpectators && (
-          <aside className="spectator-aside">
-            <SpectatorPanel
-              players={remotePlayers}
-              guildRecords={guildRecords}
-              myUserId={auth.user.id}
-            />
-          </aside>
-        )}
       </div>
+
+      {/* Spectator strip — horizontal scroll below keyboard, all screen sizes */}
+      {hasSpectators && (
+        <aside className="spectator-aside">
+          <SpectatorPanel
+            players={remotePlayers}
+            guildRecords={guildRecords}
+            myUserId={auth.user.id}
+            wordLength={wordLength}
+          />
+        </aside>
+      )}
 
       {showResult && state.gameStatus !== "playing" && (
         <ResultModal
@@ -114,6 +136,7 @@ export function Game({ auth }: GameProps) {
           evaluations={state.evaluations}
           stats={stats}
           dayNumber={state.dayNumber}
+          wordLength={wordLength}
           channelId={discordSdk?.channelId ?? null}
           guildId={discordSdk?.guildId ?? null}
           userId={auth.user.id}

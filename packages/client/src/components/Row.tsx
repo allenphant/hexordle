@@ -6,10 +6,11 @@ interface RowProps {
   evaluation?: TileState[];
   reveal?: boolean;
   shake?: boolean;
+  wordLength?: number;
 }
 
-export function Row({ letters, evaluation, reveal, shake }: RowProps) {
-  const tiles = Array(6).fill(null);
+export function Row({ letters, evaluation, reveal, shake, wordLength = 6 }: RowProps) {
+  const tiles = Array(wordLength).fill(null);
 
   return (
     <div className={`row ${shake ? "row--shake" : ""}`}>

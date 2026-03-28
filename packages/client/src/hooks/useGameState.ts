@@ -12,12 +12,15 @@ interface SavedGameState {
   dayNumber: number;
 }
 
-const STORAGE_KEY = "hexordle-state";
 const TODAY = getLocalDate(); // YYYY-MM-DD local date — consistent with getDayNumber()
 
-function loadSavedState(): SavedGameState | null {
+function storageKey(wordLength: number) {
+  return `hexordle-state-${wordLength}`;
+}
+
+function loadSavedState(wordLength: number): SavedGameState | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey(wordLength));
     if (!raw) return null;
     const saved: SavedGameState = JSON.parse(raw);
     if (saved.dayNumber !== getDayNumber()) return null;
@@ -27,17 +30,17 @@ function loadSavedState(): SavedGameState | null {
   }
 }
 
-function saveState(state: SavedGameState) {
+function saveState(state: SavedGameState, wordLength: number) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    localStorage.setItem(storageKey(wordLength), JSON.stringify(state));
   } catch {
     // ignore storage errors
   }
 }
 
-async function fetchServerProgress(userId: string): Promise<SavedGameState | null> {
+async function fetchServerProgress(userId: string, wordLength: number): Promise<SavedGameState | null> {
   try {
-    const res = await fetch(`/.proxy/api/progress?userId=${encodeURIComponent(userId)}&date=${TODAY}`);
+    const res = await fetch(`/.proxy/api/progress?userId=${encodeURIComponent(userId)}&date=${TODAY}&wordLength=${wordLength}`);
     if (!res.ok) return null;
     const data = await res.json();
     if (!data) return null;
@@ -55,6 +58,7 @@ async function fetchServerProgress(userId: string): Promise<SavedGameState | nul
 function saveServerProgress(
   userId: string,
   state: SavedGameState,
+  wordLength: number,
   guildId?: string,
   username?: string,
   avatarHash?: string | null
@@ -73,6 +77,7 @@ function saveServerProgress(
       guildId,
       username,
       avatarHash,
+      wordLength,
     }),
   }).catch(() => {}); // fire-and-forget
 }
@@ -80,12 +85,13 @@ function saveServerProgress(
 // Module-level cache so it persists across re-renders
 const validWordCache = new Map<string, boolean>();
 
-async function isValidWord(word: string): Promise<boolean> {
-  if (validWordCache.has(word)) return validWordCache.get(word)!;
+async function isValidWord(word: string, wordLength: number): Promise<boolean> {
+  const cacheKey = `${wordLength}:${word}`;
+  if (validWordCache.has(cacheKey)) return validWordCache.get(cacheKey)!;
   try {
-    const res = await fetch(`/.proxy/api/validate?word=${word}`);
+    const res = await fetch(`/.proxy/api/validate?word=${word}&length=${wordLength}`);
     const { valid } = await res.json();
-    validWordCache.set(word, valid);
+    validWordCache.set(cacheKey, valid);
     return valid;
   } catch {
     return true; // network failure → allow the word
@@ -130,11 +136,17 @@ function deriveKeyboardColors(
   return map;
 }
 
-export function useGameState(userId?: string, guildId?: string, username?: string, avatarHash?: string | null): [GameState, GameActions] {
-  const answer = getDailyAnswer();
+export function useGameState(
+  userId?: string,
+  guildId?: string,
+  username?: string,
+  avatarHash?: string | null,
+  wordLength = 6
+): [GameState, GameActions] {
+  const answer = getDailyAnswer(wordLength);
   const dayNumber = getDayNumber();
 
-  const saved = loadSavedState();
+  const saved = loadSavedState(wordLength);
 
   const [guesses, setGuesses] = useState<string[]>(saved?.guesses ?? []);
   const [evaluations, setEvaluations] = useState<TileState[][]>(
@@ -153,24 +165,47 @@ export function useGameState(userId?: string, guildId?: string, username?: strin
 
   // Ref to track if a validation is already in flight (prevents double-submit)
   const validatingRef = useRef(false);
+  // Track previous wordLength to detect mode switches
+  const prevWordLengthRef = useRef(wordLength);
 
-  // On mount: load progress from server (overrides localStorage if server has more)
+  // When wordLength changes: restore saved state for new mode (or fresh state)
+  useEffect(() => {
+    if (prevWordLengthRef.current === wordLength) return;
+    prevWordLengthRef.current = wordLength;
+
+    // Cancel any in-flight validation
+    validatingRef.current = false;
+    setIsValidating(false);
+
+    const modeState = loadSavedState(wordLength);
+    setGuesses(modeState?.guesses ?? []);
+    setEvaluations(modeState?.evaluations ?? []);
+    setGameStatus(modeState?.gameStatus ?? "playing");
+    setCurrentGuess("");
+    setShakeRow(false);
+    setRevealRow(null);
+    setPendingGuess("");
+    setPendingEvaluation(undefined);
+    setToast(null);
+  }, [wordLength]);
+
+  // On mount or wordLength change: load progress from server (overrides localStorage if server has more)
   useEffect(() => {
     if (!userId) return;
-    fetchServerProgress(userId).then((serverState) => {
+    fetchServerProgress(userId, wordLength).then((serverState) => {
       if (!serverState) return;
       // Server wins if it has a completed game or more guesses than local
       setGuesses((prev) => {
         if (serverState.gameStatus !== "playing" || serverState.guesses.length > prev.length) {
           setEvaluations(serverState.evaluations);
           setGameStatus(serverState.gameStatus);
-          saveState(serverState);
+          saveState(serverState, wordLength);
           return serverState.guesses;
         }
         return prev;
       });
     });
-  }, [userId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [userId, wordLength]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const showToast = useCallback((message: string, duration = 1500) => {
     setToast(message);
@@ -189,7 +224,7 @@ export function useGameState(userId?: string, guildId?: string, username?: strin
       setRevealRow(rowIndex);
       setCurrentGuess("");
 
-      const REVEAL_DURATION = 6 * 150 + 500;
+      const REVEAL_DURATION = wordLength * 150 + 500;
 
       setTimeout(() => {
         setRevealRow(null);
@@ -204,8 +239,8 @@ export function useGameState(userId?: string, guildId?: string, username?: strin
         setGameStatus(newStatus);
 
         const stateToSave = { guesses: newGuesses, evaluations: newEvaluations, gameStatus: newStatus, dayNumber };
-        saveState(stateToSave);
-        if (userId) saveServerProgress(userId, stateToSave, guildId, username, avatarHash);
+        saveState(stateToSave, wordLength);
+        if (userId) saveServerProgress(userId, stateToSave, wordLength, guildId, username, avatarHash);
 
         if (won) {
           const messages = ["Brilliant!", "Impressive!", "Splendid!", "Great!", "Phew!", "Close one!"];
@@ -215,7 +250,7 @@ export function useGameState(userId?: string, guildId?: string, username?: strin
         }
       }, REVEAL_DURATION);
     },
-    [guesses, evaluations, answer, dayNumber, showToast]
+    [guesses, evaluations, answer, dayNumber, wordLength, showToast]
   );
 
   const onKey = useCallback(
@@ -230,7 +265,7 @@ export function useGameState(userId?: string, guildId?: string, username?: strin
       }
 
       if (key === "Enter") {
-        if (currentGuess.length < 6) {
+        if (currentGuess.length < wordLength) {
           setShakeRow(true);
           showToast("Not enough letters");
           setTimeout(() => setShakeRow(false), 600);
@@ -241,7 +276,7 @@ export function useGameState(userId?: string, guildId?: string, username?: strin
         validatingRef.current = true;
         setIsValidating(true);
 
-        isValidWord(word).then((valid) => {
+        isValidWord(word, wordLength).then((valid) => {
           validatingRef.current = false;
           setIsValidating(false);
 
@@ -258,11 +293,11 @@ export function useGameState(userId?: string, guildId?: string, username?: strin
         return;
       }
 
-      if (/^[a-zA-Z]$/.test(key) && currentGuess.length < 6) {
+      if (/^[a-zA-Z]$/.test(key) && currentGuess.length < wordLength) {
         setCurrentGuess((g) => g + key.toLowerCase());
       }
     },
-    [gameStatus, revealRow, currentGuess, showToast, submitGuess]
+    [gameStatus, revealRow, currentGuess, wordLength, showToast, submitGuess]
   );
 
   // Physical keyboard listener

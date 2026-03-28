@@ -74,16 +74,38 @@ async function initDb() {
   `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS channel_daily_message (
-      guild_id   TEXT NOT NULL,
-      date       TEXT NOT NULL,
-      channel_id TEXT NOT NULL,
-      message_id TEXT NOT NULL,
-      day_number INTEGER,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      PRIMARY KEY (guild_id, date)
+      guild_id    TEXT NOT NULL,
+      date        TEXT NOT NULL,
+      channel_id  TEXT NOT NULL,
+      message_id  TEXT NOT NULL,
+      day_number  INTEGER,
+      word_length INTEGER NOT NULL DEFAULT 6,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (guild_id, date, word_length)
     )
   `);
   await pool.query(`ALTER TABLE channel_daily_message ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
+  await pool.query(`ALTER TABLE channel_daily_message ADD COLUMN IF NOT EXISTS word_length INTEGER NOT NULL DEFAULT 6`);
+  // Migrate user_progress: add word_length column and update PK
+  await pool.query(`ALTER TABLE user_progress ADD COLUMN IF NOT EXISTS word_length INTEGER NOT NULL DEFAULT 6`);
+  // Migrate PK: drop old (user_id, date) PK and add (user_id, date, word_length)
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.key_column_usage
+        WHERE table_name = 'user_progress' AND constraint_name = 'user_progress_pkey'
+          AND column_name = 'word_length'
+      ) THEN
+        BEGIN
+          ALTER TABLE user_progress DROP CONSTRAINT user_progress_pkey;
+          ALTER TABLE user_progress ADD PRIMARY KEY (user_id, date, word_length);
+        EXCEPTION WHEN OTHERS THEN
+          NULL; -- ignore if already migrated
+        END;
+      END IF;
+    END $$
+  `);
   console.log("[DB] Table ready");
 }
 
@@ -112,9 +134,9 @@ function roundedRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-async function buildProgressImage(players, dayNumber) {
+async function buildProgressImage(players, dayNumber, wordLength = 6) {
   if (!createCanvas || !loadImage) return null;
-  const gridPx = 6 * TILE_SIZE + 5 * TILE_GAP;
+  const gridPx = wordLength * TILE_SIZE + (wordLength - 1) * TILE_GAP;
   const cardW = gridPx + CARD_PAD * 2;
   const cardH = HEADER_H + gridPx + CARD_PAD * 2;
   const canvasW = players.length * (cardW + CARD_SPACING) - CARD_SPACING + CARD_PAD * 2;
@@ -187,7 +209,7 @@ async function buildProgressImage(players, dayNumber) {
     const gy = cy + HEADER_H + CARD_PAD;
 
     for (let row = 0; row < 6; row++) {
-      for (let col = 0; col < 6; col++) {
+      for (let col = 0; col < wordLength; col++) {
         const tx = gx + col * (TILE_SIZE + TILE_GAP);
         const ty = gy + row * (TILE_SIZE + TILE_GAP);
         const state = evals[row]?.[col];
@@ -219,12 +241,12 @@ function getYesterdayDate() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-async function autoEnsureGuildMessage(guildId, date, dayNumber, botToken) {
+async function autoEnsureGuildMessage(guildId, date, dayNumber, botToken, wordLength = 6) {
   if (!pool || !botToken || !guildId) return;
   try {
     const existing = await pool.query(
-      "SELECT channel_id, message_id, created_at FROM channel_daily_message WHERE guild_id = $1 AND date = $2",
-      [guildId, date]
+      "SELECT channel_id, message_id, created_at FROM channel_daily_message WHERE guild_id = $1 AND date = $2 AND word_length = $3",
+      [guildId, date, wordLength]
     );
 
     if (existing.rows.length > 0) {
@@ -232,7 +254,7 @@ async function autoEnsureGuildMessage(guildId, date, dayNumber, botToken) {
       const ageHours = (Date.now() - new Date(created_at).getTime()) / 3_600_000;
       if (ageHours < 3) {
         // Message is fresh — just edit it
-        refreshGuildMessage(guildId, date, botToken);
+        refreshGuildMessage(guildId, date, botToken, wordLength);
         return;
       }
       // Message is stale (>3h) — fall through to create a new one
@@ -244,8 +266,8 @@ async function autoEnsureGuildMessage(guildId, date, dayNumber, botToken) {
 
     if (!channelId) {
       const prev = await pool.query(
-        "SELECT channel_id FROM channel_daily_message WHERE guild_id = $1 AND date = $2",
-        [guildId, getYesterdayDate()]
+        "SELECT channel_id FROM channel_daily_message WHERE guild_id = $1 AND date = $2 AND word_length = $3",
+        [guildId, getYesterdayDate(), wordLength]
       );
       channelId = prev.rows[0]?.channel_id ?? null;
     }
@@ -272,13 +294,14 @@ async function autoEnsureGuildMessage(guildId, date, dayNumber, botToken) {
       components: [{ type: 2, style: 1, label: "▶ Play now!", custom_id: "launch_hexordle" }],
     }];
 
+    const modeLabel = wordLength === 5 ? " (5-Letter)" : wordLength === 7 ? " (7-Letter)" : "";
     const postRes = await fetch(
       `https://discord.com/api/v10/channels/${channelId}/messages`,
       {
         method: "POST",
         headers: { Authorization: `Bot ${botToken}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          content: `**Hexordle #${dayNumber} — Today's Results**`,
+          content: `**Hexordle #${dayNumber}${modeLabel} — Today's Results**`,
           components,
         }),
       }
@@ -287,16 +310,16 @@ async function autoEnsureGuildMessage(guildId, date, dayNumber, botToken) {
 
     const posted = await postRes.json();
     await pool.query(
-      `INSERT INTO channel_daily_message (guild_id, date, channel_id, message_id, day_number, created_at)
-       VALUES ($1, $2, $3, $4, $5, NOW())
-       ON CONFLICT (guild_id, date) DO UPDATE
+      `INSERT INTO channel_daily_message (guild_id, date, channel_id, message_id, day_number, word_length, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())
+       ON CONFLICT (guild_id, date, word_length) DO UPDATE
        SET channel_id = EXCLUDED.channel_id,
            message_id = EXCLUDED.message_id,
            created_at = EXCLUDED.created_at`,
-      [guildId, date, channelId, posted.id, dayNumber]
+      [guildId, date, channelId, posted.id, dayNumber, wordLength]
     );
 
-    refreshGuildMessage(guildId, date, botToken);
+    refreshGuildMessage(guildId, date, botToken, wordLength);
   } catch (err) {
     console.error("[Bot] autoEnsureGuildMessage error:", err);
   }
@@ -305,12 +328,12 @@ async function autoEnsureGuildMessage(guildId, date, dayNumber, botToken) {
 // ─── Refresh the guild's daily Discord message with all members' progress ─────
 const GRID_EMOJI_MAP = { correct: "🟩", present: "🟨", absent: "⬛" };
 
-async function refreshGuildMessage(guildId, date, botToken) {
+async function refreshGuildMessage(guildId, date, botToken, wordLength = 6) {
   if (!pool || !botToken) return;
   try {
     const msgRow = await pool.query(
-      "SELECT channel_id, message_id, day_number FROM channel_daily_message WHERE guild_id = $1 AND date = $2",
-      [guildId, date]
+      "SELECT channel_id, message_id, day_number FROM channel_daily_message WHERE guild_id = $1 AND date = $2 AND word_length = $3",
+      [guildId, date, wordLength]
     );
     if (msgRow.rows.length === 0) return;
     const { channel_id, message_id, day_number } = msgRow.rows[0];
@@ -318,9 +341,9 @@ async function refreshGuildMessage(guildId, date, botToken) {
     const progress = await pool.query(
       `SELECT user_id, username, avatar_hash, evaluations, completed, won, jsonb_array_length(guesses) AS guess_count
        FROM user_progress
-       WHERE guild_id = $1 AND date = $2
+       WHERE guild_id = $1 AND date = $2 AND word_length = $3
        ORDER BY completed DESC, jsonb_array_length(guesses) ASC`,
-      [guildId, date]
+      [guildId, date, wordLength]
     );
     if (progress.rows.length === 0) return;
 
@@ -333,10 +356,11 @@ async function refreshGuildMessage(guildId, date, botToken) {
     const authHeader = { Authorization: `Bot ${botToken}` };
 
     // Try image-based update first
-    const imageBuffer = await buildProgressImage(progress.rows, day_number);
+    const imageBuffer = await buildProgressImage(progress.rows, day_number, wordLength);
+    const modeLabel = wordLength === 5 ? " (5-Letter)" : wordLength === 7 ? " (7-Letter)" : "";
     if (imageBuffer) {
       const embed = {
-        title: `Hexordle #${day_number} — Today's Results`,
+        title: `Hexordle #${day_number}${modeLabel} — Today's Results`,
         color: 0x538d4e,
         image: { url: "attachment://progress.png" },
       };
@@ -354,19 +378,20 @@ async function refreshGuildMessage(guildId, date, botToken) {
     }
 
     // Fallback: emoji grid embeds (one per player)
+    const emptyRow = "⬜".repeat(wordLength);
     const embeds = progress.rows.map((row) => {
       const evals = row.evaluations ?? [];
       const paddedRows = [...evals];
       while (paddedRows.length < 6) paddedRows.push(null);
       const grid = paddedRows
-        .map((r) => r ? r.map((s) => GRID_EMOJI_MAP[s] ?? "⬛").join("") : "⬜⬜⬜⬜⬜⬜")
+        .map((r) => r ? r.map((s) => GRID_EMOJI_MAP[s] ?? "⬛").join("") : emptyRow)
         .join("\n");
       const score = row.completed
         ? (row.won ? `${row.guess_count}/6` : "X/6")
         : `${row.guess_count}/6…`;
       return {
         author: { name: row.username ?? "Player" },
-        title: `Hexordle #${day_number} — ${score}`,
+        title: `Hexordle #${day_number}${modeLabel} — ${score}`,
         description: grid,
         color: row.won ? 0x538d4e : row.completed ? 0x3a3a3c : 0x5865f2,
       };
@@ -463,11 +488,12 @@ app.get("/api/health", (_req, res) => res.json({ ok: true }));
 app.get("/api/progress", async (req, res) => {
   if (!pool) return res.json(null);
   const { userId, date } = req.query;
+  const wordLength = parseInt(req.query.wordLength ?? "6");
   if (!userId || !date) return res.status(400).json({ error: "userId and date required" });
   try {
     const result = await pool.query(
-      "SELECT * FROM user_progress WHERE user_id = $1 AND date = $2",
-      [userId, date]
+      "SELECT * FROM user_progress WHERE user_id = $1 AND date = $2 AND word_length = $3",
+      [userId, date, wordLength]
     );
     res.json(result.rows[0] ?? null);
   } catch (err) {
@@ -478,13 +504,14 @@ app.get("/api/progress", async (req, res) => {
 
 app.post("/api/progress", async (req, res) => {
   if (!pool) return res.json({ ok: true });
-  const { userId, date, dayNumber, guesses, evaluations, completed, won, guildId, username, avatarHash } = req.body;
+  const { userId, date, dayNumber, guesses, evaluations, completed, won, guildId, username, avatarHash, wordLength } = req.body;
+  const wl = wordLength ?? 6;
   if (!userId || !date) return res.status(400).json({ error: "userId and date required" });
   try {
     await pool.query(
-      `INSERT INTO user_progress (user_id, date, day_number, guesses, evaluations, completed, won, guild_id, username, avatar_hash)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       ON CONFLICT (user_id, date) DO UPDATE
+      `INSERT INTO user_progress (user_id, date, day_number, guesses, evaluations, completed, won, guild_id, username, avatar_hash, word_length)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       ON CONFLICT (user_id, date, word_length) DO UPDATE
        SET guesses = EXCLUDED.guesses, evaluations = EXCLUDED.evaluations,
            completed = EXCLUDED.completed, won = EXCLUDED.won,
            day_number = COALESCE(EXCLUDED.day_number, user_progress.day_number),
@@ -492,11 +519,11 @@ app.post("/api/progress", async (req, res) => {
            username = COALESCE(EXCLUDED.username, user_progress.username),
            avatar_hash = COALESCE(EXCLUDED.avatar_hash, user_progress.avatar_hash)`,
       [userId, date, dayNumber ?? null, JSON.stringify(guesses), JSON.stringify(evaluations),
-       completed, won, guildId ?? null, username ?? null, avatarHash ?? null]
+       completed, won, guildId ?? null, username ?? null, avatarHash ?? null, wl]
     );
     res.json({ ok: true });
     // Fire-and-forget: auto-create or refresh the guild's daily message
-    if (guildId) autoEnsureGuildMessage(guildId, date, dayNumber, process.env.BOT_TOKEN);
+    if (guildId) autoEnsureGuildMessage(guildId, date, dayNumber, process.env.BOT_TOKEN, wl);
   } catch (err) {
     console.error("[DB] Error saving progress:", err);
     res.json({ ok: true });
@@ -507,14 +534,15 @@ app.post("/api/progress", async (req, res) => {
 app.get("/api/guild-progress", async (req, res) => {
   if (!pool) return res.json([]);
   const { guildId, date } = req.query;
+  const wordLength = parseInt(req.query.wordLength ?? "6");
   if (!guildId || !date) return res.status(400).json({ error: "guildId and date required" });
   try {
     const result = await pool.query(
-      `SELECT user_id, username, avatar_hash, evaluations, completed, won
+      `SELECT user_id, username, avatar_hash, evaluations, completed, won, word_length
        FROM user_progress
-       WHERE guild_id = $1 AND date = $2
+       WHERE guild_id = $1 AND date = $2 AND word_length = $3
        ORDER BY completed DESC, jsonb_array_length(guesses) ASC`,
-      [guildId, date]
+      [guildId, date, wordLength]
     );
     res.json(result.rows.map((r) => ({
       userId: r.user_id,
@@ -523,6 +551,7 @@ app.get("/api/guild-progress", async (req, res) => {
       evaluations: r.evaluations,
       completed: r.completed,
       won: r.won,
+      wordLength: r.word_length ?? 6,
     })));
   } catch (err) {
     console.error("[DB] Error loading guild progress:", err);
@@ -565,7 +594,8 @@ app.post("/api/token", async (req, res) => {
 
 // ─── Post Game Result to Discord Channel ─────────────────────────────────────
 app.post("/api/post-result", async (req, res) => {
-  const { dayNumber, date, channelId, guildId } = req.body;
+  const { dayNumber, date, channelId, guildId, wordLength } = req.body;
+  const wl = wordLength ?? 6;
   const botToken = process.env.BOT_TOKEN;
   if (!botToken) return res.status(503).json({ error: "BOT_TOKEN not configured" });
   if (!channelId) return res.status(400).json({ error: "channelId required" });
@@ -581,26 +611,27 @@ app.post("/api/post-result", async (req, res) => {
 
   try {
     if (pool && guildId && date) {
-      // Check if today's guild message already exists
+      // Check if today's guild message already exists for this mode
       const existing = await pool.query(
-        "SELECT message_id FROM channel_daily_message WHERE guild_id = $1 AND date = $2",
-        [guildId, date]
+        "SELECT message_id FROM channel_daily_message WHERE guild_id = $1 AND date = $2 AND word_length = $3",
+        [guildId, date, wl]
       );
 
       if (existing.rows.length > 0) {
         // Message already exists — just refresh it with latest progress
-        refreshGuildMessage(guildId, date, botToken);
+        refreshGuildMessage(guildId, date, botToken, wl);
         return res.json({ success: true });
       }
 
       // No message yet — create the daily leaderboard message
+      const modeLabel = wl === 5 ? " (5-Letter)" : wl === 7 ? " (7-Letter)" : "";
       const postRes = await fetch(
         `https://discord.com/api/v10/channels/${channelId}/messages`,
         {
           method: "POST",
           headers: discordHeaders,
           body: JSON.stringify({
-            content: `**Hexordle #${dayNumber} — Today's Results**`,
+            content: `**Hexordle #${dayNumber}${modeLabel} — Today's Results**`,
             components,
           }),
         }
@@ -613,13 +644,13 @@ app.post("/api/post-result", async (req, res) => {
 
       const posted = await postRes.json();
       await pool.query(
-        `INSERT INTO channel_daily_message (guild_id, date, channel_id, message_id, day_number)
-         VALUES ($1, $2, $3, $4, $5) ON CONFLICT (guild_id, date) DO NOTHING`,
-        [guildId, date, channelId, posted.id, dayNumber]
+        `INSERT INTO channel_daily_message (guild_id, date, channel_id, message_id, day_number, word_length)
+         VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (guild_id, date, word_length) DO NOTHING`,
+        [guildId, date, channelId, posted.id, dayNumber, wl]
       );
 
       // Fill with actual progress data
-      refreshGuildMessage(guildId, date, botToken);
+      refreshGuildMessage(guildId, date, botToken, wl);
       return res.json({ success: true });
     }
 
@@ -664,16 +695,19 @@ const wordCache = new Map();
 
 app.get("/api/validate", async (req, res) => {
   const word = (req.query.word ?? "").toLowerCase();
-  if (!/^[a-z]{6}$/.test(word)) return res.json({ valid: false });
+  const length = parseInt(req.query.length ?? "6");
+  if (![5, 6, 7].includes(length)) return res.json({ valid: false });
+  if (!new RegExp(`^[a-z]{${length}}$`).test(word)) return res.json({ valid: false });
 
-  if (wordCache.has(word)) return res.json({ valid: wordCache.get(word) });
+  const cacheKey = `${length}:${word}`;
+  if (wordCache.has(cacheKey)) return res.json({ valid: wordCache.get(cacheKey) });
 
   try {
     const response = await fetch(
       `https://api.dictionaryapi.dev/api/v2/entries/en/${word}`
     );
     const valid = response.ok;
-    wordCache.set(word, valid);
+    wordCache.set(cacheKey, valid);
     res.json({ valid });
   } catch {
     res.json({ valid: true });
@@ -777,7 +811,7 @@ async function registerCommands() {
   const commands = [
     {
       name: "hexordle",
-      description: "Play Hexordle — the 6-letter word game",
+      description: "Play Hexordle — guess 5, 6, or 7-letter words",
       type: 4,        // PRIMARY_ENTRY_POINT — Activity Launcher entry
       handler: 1,     // APP_HANDLER — our server handles it, responds with LAUNCH_ACTIVITY
       integration_types: [0, 1],
@@ -785,7 +819,7 @@ async function registerCommands() {
     },
     {
       name: "hexordle",
-      description: "Play Hexordle — the 6-letter word game",
+      description: "Play Hexordle — guess 5, 6, or 7-letter words",
       type: 1,        // CHAT_INPUT — slash command
       integration_types: [0, 1],
       contexts: [0, 1, 2],

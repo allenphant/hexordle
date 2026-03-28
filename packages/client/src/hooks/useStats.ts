@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { GameStatus } from "./useGameState";
 
 export interface Stats {
@@ -10,7 +10,9 @@ export interface Stats {
   lastGameDay: number;
 }
 
-const STORAGE_KEY = "hexordle-stats";
+function storageKey(wordLength: number) {
+  return `hexordle-stats-${wordLength}`;
+}
 
 function defaultStats(): Stats {
   return {
@@ -23,9 +25,9 @@ function defaultStats(): Stats {
   };
 }
 
-function loadStats(): Stats {
+function loadStats(wordLength: number): Stats {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey(wordLength));
     if (!raw) return defaultStats();
     return { ...defaultStats(), ...JSON.parse(raw) };
   } catch {
@@ -33,16 +35,23 @@ function loadStats(): Stats {
   }
 }
 
-function saveStats(stats: Stats) {
+function saveStats(stats: Stats, wordLength: number) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(stats));
+    localStorage.setItem(storageKey(wordLength), JSON.stringify(stats));
   } catch {
     // ignore
   }
 }
 
-export function useStats() {
-  const [stats, setStats] = useState<Stats>(loadStats);
+export function useStats(wordLength = 6) {
+  const [stats, setStats] = useState<Stats>(() => loadStats(wordLength));
+  const prevRef = useRef(wordLength);
+
+  useEffect(() => {
+    if (prevRef.current === wordLength) return;
+    prevRef.current = wordLength;
+    setStats(loadStats(wordLength));
+  }, [wordLength]);
 
   const recordGame = (status: GameStatus, guessCount: number, dayNumber: number) => {
     setStats((prev) => {
@@ -67,7 +76,7 @@ export function useStats() {
         lastGameDay: dayNumber,
       };
 
-      saveStats(next);
+      saveStats(next, wordLength);
       return next;
     });
   };
