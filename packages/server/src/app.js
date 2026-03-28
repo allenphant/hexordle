@@ -10,9 +10,11 @@ const { Pool } = pg;
 
 // @napi-rs/canvas for Discord progress image generation
 let createCanvas = null;
+let loadImage = null;
 try {
   const canvasModule = await import("@napi-rs/canvas");
   createCanvas = canvasModule.createCanvas;
+  loadImage = canvasModule.loadImage;
   console.log("[Canvas] @napi-rs/canvas loaded");
 } catch {
   console.warn("[Canvas] @napi-rs/canvas not available — falling back to emoji grid");
@@ -51,6 +53,7 @@ async function initDb() {
   await pool.query(`ALTER TABLE user_progress ADD COLUMN IF NOT EXISTS guild_id TEXT`);
   await pool.query(`ALTER TABLE user_progress ADD COLUMN IF NOT EXISTS username TEXT`);
   await pool.query(`ALTER TABLE user_progress ADD COLUMN IF NOT EXISTS day_number INTEGER`);
+  await pool.query(`ALTER TABLE user_progress ADD COLUMN IF NOT EXISTS avatar_hash TEXT`);
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_guild_date
     ON user_progress (guild_id, date) WHERE guild_id IS NOT NULL
@@ -76,9 +79,11 @@ async function initDb() {
       channel_id TEXT NOT NULL,
       message_id TEXT NOT NULL,
       day_number INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       PRIMARY KEY (guild_id, date)
     )
   `);
+  await pool.query(`ALTER TABLE channel_daily_message ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
   console.log("[DB] Table ready");
 }
 
@@ -88,9 +93,10 @@ const TILE_EMPTY_FILL = "#1a1a1b";
 const TILE_EMPTY_STROKE = "#3a3a3c";
 const TILE_SIZE = 32;
 const TILE_GAP = 4;
-const CARD_PAD = 14;
+const CARD_PAD = 12;
 const CARD_SPACING = 10;
-const HEADER_H = 40; // name + score
+const AVATAR_R = 22;   // circle radius
+const HEADER_H = AVATAR_R * 2 + 8 + 16; // avatar + gap + score line
 
 function roundedRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
@@ -106,8 +112,8 @@ function roundedRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-function buildProgressImage(players, dayNumber) {
-  if (!createCanvas) return null;
+async function buildProgressImage(players, dayNumber) {
+  if (!createCanvas || !loadImage) return null;
   const gridPx = 6 * TILE_SIZE + 5 * TILE_GAP;
   const cardW = gridPx + CARD_PAD * 2;
   const cardH = HEADER_H + gridPx + CARD_PAD * 2;
@@ -121,7 +127,8 @@ function buildProgressImage(players, dayNumber) {
   ctx.fillStyle = "#0f111a";
   ctx.fillRect(0, 0, canvasW, canvasH);
 
-  players.forEach((player, i) => {
+  for (let i = 0; i < players.length; i++) {
+    const player = players[i];
     const cx = CARD_PAD + i * (cardW + CARD_SPACING);
     const cy = CARD_PAD;
 
@@ -130,22 +137,49 @@ function buildProgressImage(players, dayNumber) {
     roundedRect(ctx, cx, cy, cardW, cardH, 8);
     ctx.fill();
 
-    // Player name
     const score = player.completed
       ? (player.won ? `${(player.evaluations ?? []).length}/6` : "X/6")
       : `${(player.evaluations ?? []).length}/6…`;
 
-    ctx.fillStyle = "#d7dadc";
-    ctx.font = "bold 13px FreeSans,Arial,sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "top";
-    const nameMaxW = cardW - CARD_PAD * 2;
-    const displayName = truncateText(ctx, player.username ?? "Player", nameMaxW);
-    ctx.fillText(displayName, cx + cardW / 2, cy + CARD_PAD);
+    // Avatar (circular)
+    const ax = cx + cardW / 2;
+    const ay = cy + CARD_PAD + AVATAR_R;
+    if (player.user_id && player.avatar_hash) {
+      try {
+        const avatarUrl = `https://cdn.discordapp.com/avatars/${player.user_id}/${player.avatar_hash}.png?size=64`;
+        const img = await loadImage(avatarUrl);
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(ax, ay, AVATAR_R, 0, Math.PI * 2);
+        ctx.clip();
+        ctx.drawImage(img, ax - AVATAR_R, ay - AVATAR_R, AVATAR_R * 2, AVATAR_R * 2);
+        ctx.restore();
+      } catch {
+        // Fallback: coloured circle with initial
+        ctx.fillStyle = "#538d4e";
+        ctx.beginPath();
+        ctx.arc(ax, ay, AVATAR_R, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#fff";
+        ctx.font = `bold ${AVATAR_R}px FreeSans,Arial,sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText((player.username ?? "?")[0].toUpperCase(), ax, ay);
+      }
+    } else {
+      // Default avatar: coloured circle
+      ctx.fillStyle = "#3a3a3c";
+      ctx.beginPath();
+      ctx.arc(ax, ay, AVATAR_R, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
+    // Score below avatar
     ctx.fillStyle = "#818384";
     ctx.font = "11px FreeSans,Arial,sans-serif";
-    ctx.fillText(score, cx + cardW / 2, cy + CARD_PAD + 17);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillText(score, ax, cy + CARD_PAD + AVATAR_R * 2 + 4);
 
     // Grid
     const evals = player.evaluations ?? [];
@@ -173,18 +207,99 @@ function buildProgressImage(players, dayNumber) {
         }
       }
     }
-  });
+  }
 
   return canvas.toBuffer("image/png");
 }
 
-function truncateText(ctx, text, maxWidth) {
-  if (ctx.measureText(text).width <= maxWidth) return text;
-  let truncated = text;
-  while (truncated.length > 1 && ctx.measureText(truncated + "…").width > maxWidth) {
-    truncated = truncated.slice(0, -1);
+// ─── Auto-ensure guild daily message (called on every guess) ─────────────────
+function getYesterdayDate() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+async function autoEnsureGuildMessage(guildId, date, dayNumber, botToken) {
+  if (!pool || !botToken || !guildId) return;
+  try {
+    const existing = await pool.query(
+      "SELECT channel_id, message_id, created_at FROM channel_daily_message WHERE guild_id = $1 AND date = $2",
+      [guildId, date]
+    );
+
+    if (existing.rows.length > 0) {
+      const { created_at } = existing.rows[0];
+      const ageHours = (Date.now() - new Date(created_at).getTime()) / 3_600_000;
+      if (ageHours < 3) {
+        // Message is fresh — just edit it
+        refreshGuildMessage(guildId, date, botToken);
+        return;
+      }
+      // Message is stale (>3h) — fall through to create a new one
+    }
+
+    // Find which text channel to post in:
+    // 1. Reuse today's stale message channel or yesterday's channel
+    let channelId = existing.rows[0]?.channel_id ?? null;
+
+    if (!channelId) {
+      const prev = await pool.query(
+        "SELECT channel_id FROM channel_daily_message WHERE guild_id = $1 AND date = $2",
+        [guildId, getYesterdayDate()]
+      );
+      channelId = prev.rows[0]?.channel_id ?? null;
+    }
+
+    // 2. Fall back to the guild's first text channel
+    if (!channelId) {
+      const chRes = await fetch(
+        `https://discord.com/api/v10/guilds/${guildId}/channels`,
+        { headers: { Authorization: `Bot ${botToken}` } }
+      );
+      if (chRes.ok) {
+        const all = await chRes.json();
+        const first = all
+          .filter((c) => c.type === 0 || c.type === 5)
+          .sort((a, b) => a.position - b.position)[0];
+        if (first) channelId = first.id;
+      }
+    }
+
+    if (!channelId) return;
+
+    const components = [{
+      type: 1,
+      components: [{ type: 2, style: 1, label: "▶ Play now!", custom_id: "launch_hexordle" }],
+    }];
+
+    const postRes = await fetch(
+      `https://discord.com/api/v10/channels/${channelId}/messages`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bot ${botToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: `**Hexordle #${dayNumber} — Today's Results**`,
+          components,
+        }),
+      }
+    );
+    if (!postRes.ok) return;
+
+    const posted = await postRes.json();
+    await pool.query(
+      `INSERT INTO channel_daily_message (guild_id, date, channel_id, message_id, day_number, created_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())
+       ON CONFLICT (guild_id, date) DO UPDATE
+       SET channel_id = EXCLUDED.channel_id,
+           message_id = EXCLUDED.message_id,
+           created_at = EXCLUDED.created_at`,
+      [guildId, date, channelId, posted.id, dayNumber]
+    );
+
+    refreshGuildMessage(guildId, date, botToken);
+  } catch (err) {
+    console.error("[Bot] autoEnsureGuildMessage error:", err);
   }
-  return truncated + "…";
 }
 
 // ─── Refresh the guild's daily Discord message with all members' progress ─────
@@ -201,7 +316,7 @@ async function refreshGuildMessage(guildId, date, botToken) {
     const { channel_id, message_id, day_number } = msgRow.rows[0];
 
     const progress = await pool.query(
-      `SELECT username, evaluations, completed, won, jsonb_array_length(guesses) AS guess_count
+      `SELECT user_id, username, avatar_hash, evaluations, completed, won, jsonb_array_length(guesses) AS guess_count
        FROM user_progress
        WHERE guild_id = $1 AND date = $2
        ORDER BY completed DESC, jsonb_array_length(guesses) ASC`,
@@ -218,7 +333,7 @@ async function refreshGuildMessage(guildId, date, botToken) {
     const authHeader = { Authorization: `Bot ${botToken}` };
 
     // Try image-based update first
-    const imageBuffer = buildProgressImage(progress.rows, day_number);
+    const imageBuffer = await buildProgressImage(progress.rows, day_number);
     if (imageBuffer) {
       const embed = {
         title: `Hexordle #${day_number} — Today's Results`,
@@ -363,24 +478,25 @@ app.get("/api/progress", async (req, res) => {
 
 app.post("/api/progress", async (req, res) => {
   if (!pool) return res.json({ ok: true });
-  const { userId, date, dayNumber, guesses, evaluations, completed, won, guildId, username } = req.body;
+  const { userId, date, dayNumber, guesses, evaluations, completed, won, guildId, username, avatarHash } = req.body;
   if (!userId || !date) return res.status(400).json({ error: "userId and date required" });
   try {
     await pool.query(
-      `INSERT INTO user_progress (user_id, date, day_number, guesses, evaluations, completed, won, guild_id, username)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO user_progress (user_id, date, day_number, guesses, evaluations, completed, won, guild_id, username, avatar_hash)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        ON CONFLICT (user_id, date) DO UPDATE
        SET guesses = EXCLUDED.guesses, evaluations = EXCLUDED.evaluations,
            completed = EXCLUDED.completed, won = EXCLUDED.won,
            day_number = COALESCE(EXCLUDED.day_number, user_progress.day_number),
            guild_id = COALESCE(EXCLUDED.guild_id, user_progress.guild_id),
-           username = COALESCE(EXCLUDED.username, user_progress.username)`,
+           username = COALESCE(EXCLUDED.username, user_progress.username),
+           avatar_hash = COALESCE(EXCLUDED.avatar_hash, user_progress.avatar_hash)`,
       [userId, date, dayNumber ?? null, JSON.stringify(guesses), JSON.stringify(evaluations),
-       completed, won, guildId ?? null, username ?? null]
+       completed, won, guildId ?? null, username ?? null, avatarHash ?? null]
     );
     res.json({ ok: true });
-    // Fire-and-forget: update the guild's daily Discord message on every guess
-    if (guildId) refreshGuildMessage(guildId, date, process.env.BOT_TOKEN);
+    // Fire-and-forget: auto-create or refresh the guild's daily message
+    if (guildId) autoEnsureGuildMessage(guildId, date, dayNumber, process.env.BOT_TOKEN);
   } catch (err) {
     console.error("[DB] Error saving progress:", err);
     res.json({ ok: true });

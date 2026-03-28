@@ -56,7 +56,8 @@ function saveServerProgress(
   userId: string,
   state: SavedGameState,
   guildId?: string,
-  username?: string
+  username?: string,
+  avatarHash?: string | null
 ) {
   fetch("/.proxy/api/progress", {
     method: "POST",
@@ -71,6 +72,7 @@ function saveServerProgress(
       won: state.gameStatus === "won",
       guildId,
       username,
+      avatarHash,
     }),
   }).catch(() => {}); // fire-and-forget
 }
@@ -128,7 +130,7 @@ function deriveKeyboardColors(
   return map;
 }
 
-export function useGameState(userId?: string, guildId?: string, username?: string): [GameState, GameActions] {
+export function useGameState(userId?: string, guildId?: string, username?: string, avatarHash?: string | null): [GameState, GameActions] {
   const answer = getDailyAnswer();
   const dayNumber = getDayNumber();
 
@@ -203,7 +205,7 @@ export function useGameState(userId?: string, guildId?: string, username?: strin
 
         const stateToSave = { guesses: newGuesses, evaluations: newEvaluations, gameStatus: newStatus, dayNumber };
         saveState(stateToSave);
-        if (userId) saveServerProgress(userId, stateToSave, guildId, username);
+        if (userId) saveServerProgress(userId, stateToSave, guildId, username, avatarHash);
 
         if (won) {
           const messages = ["Brilliant!", "Impressive!", "Splendid!", "Great!", "Phew!", "Close one!"];
