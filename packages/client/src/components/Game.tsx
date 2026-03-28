@@ -17,7 +17,7 @@ interface GameProps {
 export function Game({ auth }: GameProps) {
   const guildId = discordSdk?.guildId ?? undefined;
   const username = auth.user.global_name ?? auth.user.username;
-  const [state, actions] = useGameState(auth.user.id, guildId, username);
+  const [state, actions] = useGameState(auth.user.id, guildId, username, auth.user.avatar);
   const { stats, recordGame } = useStats();
   const { remotePlayers, sendGuess } = useMultiplayer(auth);
   const [showResult, setShowResult] = useState(false);
@@ -58,6 +58,8 @@ export function Game({ auth }: GameProps) {
     }
   }, [state.gameStatus]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const hasSpectators = remotePlayers.length > 0 || guildRecords.length > 0;
+
   return (
     <div className="game">
       <header className="header">
@@ -74,31 +76,36 @@ export function Game({ auth }: GameProps) {
 
       {state.toast && <div className="toast">{state.toast}</div>}
 
-      <div className="game-main">
-        <Board
-          guesses={state.guesses}
-          evaluations={state.evaluations}
-          currentGuess={state.currentGuess}
-          shakeRow={state.shakeRow}
-          revealRow={state.revealRow}
-          pendingGuess={state.pendingGuess}
-          pendingEvaluation={state.pendingEvaluation}
-        />
-
-        {(remotePlayers.length > 0 || guildRecords.length > 0) && (
-          <SpectatorPanel
-            players={remotePlayers}
-            guildRecords={guildRecords}
-            myUserId={auth.user.id}
+      <div className="game-body">
+        {/* Board + Keyboard always together in a centered column */}
+        <div className="game-center">
+          <Board
+            guesses={state.guesses}
+            evaluations={state.evaluations}
+            currentGuess={state.currentGuess}
+            shakeRow={state.shakeRow}
+            revealRow={state.revealRow}
+            pendingGuess={state.pendingGuess}
+            pendingEvaluation={state.pendingEvaluation}
           />
+          <Keyboard
+            keyboardColors={state.keyboardColors}
+            onKey={actions.onKey}
+            isValidating={state.isValidating}
+          />
+        </div>
+
+        {/* Spectator panel: right sidebar on desktop, bottom strip on mobile */}
+        {hasSpectators && (
+          <aside className="spectator-aside">
+            <SpectatorPanel
+              players={remotePlayers}
+              guildRecords={guildRecords}
+              myUserId={auth.user.id}
+            />
+          </aside>
         )}
       </div>
-
-      <Keyboard
-        keyboardColors={state.keyboardColors}
-        onKey={actions.onKey}
-        isValidating={state.isValidating}
-      />
 
       {showResult && state.gameStatus !== "playing" && (
         <ResultModal

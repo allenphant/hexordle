@@ -43,17 +43,46 @@ body {
   font-size: 1.2rem;
 }
 
+/* Full-screen shell */
 .game {
   display: flex;
   flex-direction: column;
-  align-items: center;
   height: 100vh;
-  max-width: 700px;
-  margin: 0 auto;
-  padding: 0 8px;
-  /* push content below the device status bar / notch on mobile */
-  padding-top: env(safe-area-inset-top);
   overflow: hidden;
+  padding-top: env(safe-area-inset-top);
+}
+
+/* Row: game-center + spectator aside */
+.game-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  justify-content: center;
+  overflow: hidden;
+}
+
+/* Center column: board + keyboard always together and centered */
+.game-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: min(480px, 100vw);
+  padding: 0 4px;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Spectator: right sidebar on desktop */
+.spectator-aside {
+  flex: 0 0 160px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 12px 6px 12px 4px;
+  align-self: flex-start;
+  max-height: 100%;
 }
 
 /* ─── Header ─── */
@@ -113,11 +142,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--tile-gap);
-  padding: 10px 0;
-  flex: 1;
-  min-height: 0;
-  justify-content: center;
-  overflow: hidden;
+  padding: 8px 0;
+  flex: 0 0 auto; /* natural size — game-center handles centering */
 }
 
 .row {
@@ -200,8 +226,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  /* extra bottom padding for Discord voice participant overlay (~90px) */
-  padding: 8px 0 96px;
+  /* bottom: leave room for Discord voice overlay + safe area */
+  padding: 8px 0 calc(env(safe-area-inset-bottom, 0px) + 64px);
   width: 100%;
   flex-shrink: 0;
 }
@@ -214,8 +240,7 @@ body {
 
 .key {
   height: var(--key-height);
-  min-width: 38px;
-  padding: 0 4px;
+  padding: 0 2px;
   border: none;
   border-radius: 4px;
   background-color: var(--color-key-bg);
@@ -224,14 +249,14 @@ body {
   font-weight: 700;
   cursor: pointer;
   text-transform: uppercase;
-  flex: 1;
-  max-width: 38px;
+  /* flex: 1 with no min/max lets keys fill the row and shrink on narrow screens */
+  flex: 1 1 0%;
+  min-width: 0;
   transition: background-color 0.2s ease;
 }
 
 .key--wide {
-  min-width: 58px;
-  max-width: 58px;
+  flex: 1.55 1 0%; /* ENTER / ⌫ are ~55% wider than letter keys */
   font-size: 0.7rem;
 }
 
@@ -423,24 +448,9 @@ body {
   padding-right: 32px;
 }
 
-/* ─── Game Main (board + spectator side by side) ─── */
-.game-main {
-  display: flex;
-  gap: 16px;
-  align-items: stretch;
-  flex: 1;
-  min-height: 0;
-  justify-content: center;
-  width: 100%;
-}
-
 /* ─── Spectator Panel ─── */
 .spectator-panel {
-  padding-top: 16px;
-  min-width: 140px;
-  max-width: 180px;
-  flex-shrink: 0;
-  align-self: flex-start;
+  padding-top: 8px;
 }
 
 .spectator-title {
@@ -501,7 +511,6 @@ body {
 .mini-tile[data-state="absent"]  { background-color: var(--color-absent);  border-color: var(--color-absent);  }
 
 /* ─── Responsive — height breakpoints ─── */
-/* Default: tile=58, key=54 → total ~658px needed */
 
 @media (max-height: 660px) {
   :root { --tile-size: 50px; --key-height: 46px; }
@@ -510,40 +519,59 @@ body {
 @media (max-height: 580px) {
   :root { --tile-size: 44px; --tile-gap: 4px; --key-height: 40px; --header-height: 44px; }
   .header h1 { font-size: 1.4rem; }
-  .board { padding: 6px 0; }
-  .keyboard { padding: 6px 0 96px; gap: 5px; }
+  .board { padding: 5px 0; }
+  .keyboard { padding: 5px 0 calc(env(safe-area-inset-bottom, 0px) + 52px); gap: 5px; }
 }
 
 @media (max-height: 510px) {
   :root { --tile-size: 38px; --tile-gap: 3px; --key-height: 34px; --header-height: 38px; }
   .header h1 { font-size: 1.2rem; }
-  .board { padding: 4px 0; }
-  .keyboard { padding: 4px 0 96px; gap: 4px; }
+  .board { padding: 3px 0; }
+  .keyboard { padding: 3px 0 calc(env(safe-area-inset-bottom, 0px) + 28px); gap: 4px; }
 }
 
-/* ─── Responsive — width breakpoints ─── */
-/* board needs: 6×tile + 5×gap + 16px padding */
+/* ─── Responsive — mobile: spectator below game-center ─── */
+/* When viewport is narrow, stack vertically so board stays centered    */
+@media (max-width: 640px) {
+  .game-body {
+    flex-direction: column;
+    align-items: center;
+    overflow-y: hidden;
+  }
 
-@media (max-width: 420px) {
-  :root { --tile-size: 48px; --tile-gap: 4px; --key-height: 44px; }
-  .key { min-width: 34px; max-width: 34px; }
-  .key--wide { min-width: 52px; max-width: 52px; }
-  .spectator-panel { display: none; }
-}
+  .game-center {
+    flex: 1;
+    width: 100%;
+    height: auto;
+    min-height: 0;
+  }
 
-@media (max-width: 360px) {
-  :root { --tile-size: 42px; --tile-gap: 3px; --key-height: 38px; }
-  .key { min-width: 30px; max-width: 30px; font-size: 0.7rem; }
-  .key--wide { min-width: 46px; max-width: 46px; }
-}
+  /* Spectator becomes a compact horizontal-scroll strip below keyboard */
+  .spectator-aside {
+    flex: 0 0 auto;
+    width: 100%;
+    max-height: 130px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 6px 8px calc(env(safe-area-inset-bottom, 0px) + 6px);
+    border-top: 1px solid var(--color-header-border);
+  }
 
-@media (max-width: 310px) {
-  :root { --tile-size: 36px; --tile-gap: 3px; --key-height: 32px; }
-  .key { min-width: 26px; max-width: 26px; font-size: 0.65rem; }
-  .key--wide { min-width: 40px; max-width: 40px; }
-}
+  /* Let spectator list scroll horizontally on mobile for compact view */
+  .spectator-list {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 16px;
+    padding-bottom: 4px;
+  }
 
-/* Hide spectator panel on screens too narrow for both */
-@media (max-width: 500px) {
-  .spectator-panel { display: none; }
+  .spectator-player {
+    flex-shrink: 0;
+  }
+
+  /* Keyboard bottom padding is handled by spectator-aside on mobile */
+  .keyboard {
+    padding-bottom: 8px;
+  }
 }
