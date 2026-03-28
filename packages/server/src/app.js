@@ -86,6 +86,24 @@ async function initDb() {
   `);
   await pool.query(`ALTER TABLE channel_daily_message ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
   await pool.query(`ALTER TABLE channel_daily_message ADD COLUMN IF NOT EXISTS word_length INTEGER NOT NULL DEFAULT 6`);
+  // Migrate channel_daily_message PK: drop old (guild_id, date) PK and add (guild_id, date, word_length)
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.key_column_usage
+        WHERE table_name = 'channel_daily_message' AND constraint_name = 'channel_daily_message_pkey'
+          AND column_name = 'word_length'
+      ) THEN
+        BEGIN
+          ALTER TABLE channel_daily_message DROP CONSTRAINT channel_daily_message_pkey;
+          ALTER TABLE channel_daily_message ADD PRIMARY KEY (guild_id, date, word_length);
+        EXCEPTION WHEN OTHERS THEN
+          NULL; -- ignore if already migrated
+        END;
+      END IF;
+    END $$
+  `);
   // Migrate user_progress: add word_length column and update PK
   await pool.query(`ALTER TABLE user_progress ADD COLUMN IF NOT EXISTS word_length INTEGER NOT NULL DEFAULT 6`);
   // Migrate PK: drop old (user_id, date) PK and add (user_id, date, word_length)
