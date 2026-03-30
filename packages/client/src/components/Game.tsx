@@ -86,8 +86,8 @@ export function Game({ auth }: GameProps) {
     // Width-based tile (mirrors the CSS clamp formula)
     const tileW = Math.min(56, Math.max(32, Math.floor((w - 64) / 7.5)));
 
-    // Height budget: header(50) + board padding(16) + keyboard gap+padding(~30) + spectator(100)
-    const FIXED = 50 + 16 + 30 + 100;
+    // Height budget: header(50) + top padding(10) + board padding(16) + keyboard gap+padding(~30) + spectator(140)
+    const FIXED = 50 + 10 + 16 + 30 + 140;
     // board = 6 rows × tile + 5 gaps (~tile*0.09)
     // keyboard = 3 rows × key + 2×6 gap
     // key ≈ tile * 0.92
