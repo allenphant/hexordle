@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { AuthData, discordSdk } from "../discordSdk";
 import { useGameState } from "../hooks/useGameState";
 import { useStats } from "../hooks/useStats";
@@ -72,8 +72,58 @@ export function Game({ auth }: GameProps) {
     }
   }, [state.gameStatus]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── ResizeObserver: dynamically shrink tiles when height is constrained ──
+  const gameRef = useRef<HTMLDivElement>(null);
+  const rafRef = useRef(0);
+
+  const recalcSizes = useCallback(() => {
+    const el = gameRef.current;
+    if (!el) return;
+
+    const h = el.clientHeight;
+    const w = el.clientWidth;
+
+    // Width-based tile (mirrors the CSS clamp formula)
+    const tileW = Math.min(56, Math.max(32, Math.floor((w - 64) / 7.5)));
+
+    // Height budget: header(50) + board padding(16) + keyboard gap+padding(~30) + spectator(100)
+    const FIXED = 50 + 16 + 30 + 100;
+    // board = 6 rows × tile + 5 gaps (~tile*0.09)
+    // keyboard = 3 rows × key + 2×6 gap
+    // key ≈ tile * 0.92
+    // total game area ≈ 6*tile + 5*(tile*0.09) + 3*(tile*0.92) + 12
+    //                 ≈ tile * (6 + 0.45 + 2.76) + 12 = tile * 9.21 + 12
+    const availableForGame = h - FIXED;
+    const tileH = Math.max(32, Math.floor((availableForGame - 12) / 9.21));
+
+    const tile = Math.min(tileW, tileH);
+    const gap = Math.min(5, Math.max(3, Math.round(tile * 0.09)));
+    const key = Math.min(54, Math.max(34, Math.round(tile * 0.92)));
+
+    el.style.setProperty("--tile-size", `${tile}px`);
+    el.style.setProperty("--tile-gap", `${gap}px`);
+    el.style.setProperty("--key-height", `${key}px`);
+  }, []);
+
+  useEffect(() => {
+    const el = gameRef.current;
+    if (!el) return;
+
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = requestAnimationFrame(recalcSizes);
+    });
+    ro.observe(el);
+    recalcSizes(); // initial calc
+
+    return () => {
+      ro.disconnect();
+      cancelAnimationFrame(rafRef.current);
+    };
+  }, [recalcSizes]);
+
   return (
-    <div className="game">
+    <div className="game" ref={gameRef}>
       <header className="header">
         <h1>Hexordle</h1>
         <button
