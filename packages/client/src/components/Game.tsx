@@ -7,9 +7,7 @@ import { Board } from "./Board";
 import { Keyboard } from "./Keyboard";
 import { ResultModal } from "./ResultModal";
 import { SpectatorPanel, GuildRecord } from "./SpectatorPanel";
-import { getLocalDate } from "../lib/share";
-
-const TODAY = getLocalDate(); // local date, consistent with server progress keys
+import { useDateCheck } from "../hooks/useDateCheck";
 
 interface GameProps {
   auth: AuthData;
@@ -20,8 +18,9 @@ export function Game({ auth }: GameProps) {
   const username = auth.user.global_name ?? auth.user.username;
 
   const [wordLength, setWordLength] = useState<5 | 6 | 7>(6);
+  const today = useDateCheck();
 
-  const [state, actions] = useGameState(auth.user.id, guildId, username, auth.user.avatar, wordLength);
+  const [state, actions] = useGameState(auth.user.id, guildId, username, auth.user.avatar, wordLength, today);
   const { stats, recordGame } = useStats(wordLength);
   const { remotePlayers, sendProgress } = useMultiplayer(auth);
   const [showResult, setShowResult] = useState(false);
@@ -30,7 +29,7 @@ export function Game({ auth }: GameProps) {
   useEffect(() => {
     if (!guildId) return;
     const fetch_ = () => {
-      fetch(`/.proxy/api/guild-progress?guildId=${guildId}&date=${TODAY}&wordLength=${wordLength}`)
+      fetch(`/.proxy/api/guild-progress?guildId=${guildId}&date=${today}&wordLength=${wordLength}`)
         .then((r) => r.json())
         .then(setGuildRecords)
         .catch(() => {});
@@ -38,7 +37,7 @@ export function Game({ auth }: GameProps) {
     fetch_();
     const id = setInterval(fetch_, 30_000);
     return () => clearInterval(id);
-  }, [guildId, wordLength]);
+  }, [guildId, wordLength, today]);
 
   useEffect(() => {
     setShowResult(false);

@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { TileState, evaluateGuess } from "../lib/evaluate";
 import { getDailyAnswer } from "../lib/words";
-import { getDayNumber, getLocalDate } from "../lib/share";
+import { getDayNumber } from "../lib/share";
 
 export type GameStatus = "playing" | "won" | "lost";
 
@@ -11,8 +11,6 @@ interface SavedGameState {
   gameStatus: GameStatus;
   dayNumber: number;
 }
-
-const TODAY = getLocalDate(); // YYYY-MM-DD local date — consistent with getDayNumber()
 
 function storageKey(wordLength: number) {
   return `hexordle-state-${wordLength}`;
@@ -38,9 +36,9 @@ function saveState(state: SavedGameState, wordLength: number) {
   }
 }
 
-async function fetchServerProgress(userId: string, wordLength: number): Promise<SavedGameState | null> {
+async function fetchServerProgress(userId: string, wordLength: number, today: string): Promise<SavedGameState | null> {
   try {
-    const res = await fetch(`/.proxy/api/progress?userId=${encodeURIComponent(userId)}&date=${TODAY}&wordLength=${wordLength}`);
+    const res = await fetch(`/.proxy/api/progress?userId=${encodeURIComponent(userId)}&date=${today}&wordLength=${wordLength}`);
     if (!res.ok) return null;
     const data = await res.json();
     if (!data) return null;
@@ -59,6 +57,7 @@ function saveServerProgress(
   userId: string,
   state: SavedGameState,
   wordLength: number,
+  today: string,
   guildId?: string,
   username?: string,
   avatarHash?: string | null
@@ -68,7 +67,7 @@ function saveServerProgress(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       userId,
-      date: TODAY,
+      date: today,
       dayNumber: state.dayNumber,
       guesses: state.guesses,
       evaluations: state.evaluations,
@@ -141,10 +140,11 @@ export function useGameState(
   guildId?: string,
   username?: string,
   avatarHash?: string | null,
-  wordLength = 6
+  wordLength = 6,
+  today = ""
 ): [GameState, GameActions] {
-  const answer = getDailyAnswer(wordLength);
-  const dayNumber = getDayNumber();
+  const dayNumber = useMemo(() => getDayNumber(), [today]); // eslint-disable-line react-hooks/exhaustive-deps
+  const answer = useMemo(() => getDailyAnswer(wordLength), [wordLength, dayNumber]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const saved = loadSavedState(wordLength);
 
@@ -165,13 +165,15 @@ export function useGameState(
 
   // Ref to track if a validation is already in flight (prevents double-submit)
   const validatingRef = useRef(false);
-  // Track previous wordLength to detect mode switches
+  // Track previous values to detect mode switches and date changes
   const prevWordLengthRef = useRef(wordLength);
+  const prevTodayRef = useRef(today);
 
-  // When wordLength changes: restore saved state for new mode (or fresh state)
+  // When wordLength or date changes: restore saved state (or fresh state for new day)
   useEffect(() => {
-    if (prevWordLengthRef.current === wordLength) return;
+    if (prevWordLengthRef.current === wordLength && prevTodayRef.current === today) return;
     prevWordLengthRef.current = wordLength;
+    prevTodayRef.current = today;
 
     // Cancel any in-flight validation
     validatingRef.current = false;
@@ -187,12 +189,12 @@ export function useGameState(
     setPendingGuess("");
     setPendingEvaluation(undefined);
     setToast(null);
-  }, [wordLength]);
+  }, [wordLength, today]);
 
-  // On mount or wordLength change: load progress from server (overrides localStorage if server has more)
+  // On mount, wordLength change, or date change: load progress from server
   useEffect(() => {
     if (!userId) return;
-    fetchServerProgress(userId, wordLength).then((serverState) => {
+    fetchServerProgress(userId, wordLength, today).then((serverState) => {
       if (!serverState) return;
       // Server wins if it has a completed game or more guesses than local
       setGuesses((prev) => {
@@ -205,7 +207,7 @@ export function useGameState(
         return prev;
       });
     });
-  }, [userId, wordLength]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [userId, wordLength, today]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const showToast = useCallback((message: string, duration = 1500) => {
     setToast(message);
@@ -240,7 +242,7 @@ export function useGameState(
 
         const stateToSave = { guesses: newGuesses, evaluations: newEvaluations, gameStatus: newStatus, dayNumber };
         saveState(stateToSave, wordLength);
-        if (userId) saveServerProgress(userId, stateToSave, wordLength, guildId, username, avatarHash);
+        if (userId) saveServerProgress(userId, stateToSave, wordLength, today, guildId, username, avatarHash);
 
         if (won) {
           const messages = ["Brilliant!", "Impressive!", "Splendid!", "Great!", "Phew!", "Close one!"];
@@ -250,7 +252,7 @@ export function useGameState(
         }
       }, REVEAL_DURATION);
     },
-    [guesses, evaluations, answer, dayNumber, wordLength, showToast]
+    [guesses, evaluations, answer, dayNumber, wordLength, today, showToast]
   );
 
   const onKey = useCallback(
