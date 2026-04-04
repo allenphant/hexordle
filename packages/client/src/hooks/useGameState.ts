@@ -194,8 +194,9 @@ export function useGameState(
   // On mount, wordLength change, or date change: load progress from server
   useEffect(() => {
     if (!userId) return;
+    let cancelled = false;
     fetchServerProgress(userId, wordLength, today).then((serverState) => {
-      if (!serverState) return;
+      if (cancelled || !serverState) return;
       // Server wins if it has a completed game or more guesses than local
       setGuesses((prev) => {
         if (serverState.gameStatus !== "playing" || serverState.guesses.length > prev.length) {
@@ -207,6 +208,7 @@ export function useGameState(
         return prev;
       });
     });
+    return () => { cancelled = true; };
   }, [userId, wordLength, today]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const showToast = useCallback((message: string, duration = 1500) => {
@@ -312,13 +314,17 @@ export function useGameState(
     return () => window.removeEventListener("keydown", handler);
   }, [onKey]);
 
-  const keyboardColors = deriveKeyboardColors(guesses, evaluations);
+  // Guard: if guesses are from a different mode (wrong length), treat as empty
+  // This prevents a one-frame flicker where wordLength changed but state hasn't reset yet
+  const stableGuesses = guesses.every((g) => g.length === wordLength) ? guesses : [];
+  const stableEvaluations = stableGuesses.length > 0 ? evaluations.slice(0, stableGuesses.length) : [];
+  const keyboardColors = deriveKeyboardColors(stableGuesses, stableEvaluations);
 
   const state: GameState = {
     answer,
     dayNumber,
-    guesses,
-    evaluations,
+    guesses: stableGuesses,
+    evaluations: stableEvaluations,
     currentGuess,
     gameStatus,
     shakeRow,
