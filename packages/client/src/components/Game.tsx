@@ -20,56 +20,118 @@ export function Game({ auth }: GameProps) {
   const [wordLength, setWordLength] = useState<5 | 6 | 7>(6);
   const today = useDateCheck();
 
-  const [state, actions] = useGameState(auth.user.id, guildId, username, auth.user.avatar, wordLength, today);
-  const { stats, recordGame } = useStats(wordLength);
+  // Pre-load all three modes simultaneously — mode switching is a pure view change,
+  // no async transitions, no race conditions.
+  const [state5, actions5] = useGameState(auth.user.id, guildId, username, auth.user.avatar, 5, today);
+  const [state6, actions6] = useGameState(auth.user.id, guildId, username, auth.user.avatar, 6, today);
+  const [state7, actions7] = useGameState(auth.user.id, guildId, username, auth.user.avatar, 7, today);
+
+  const activeState   = wordLength === 5 ? state5   : wordLength === 7 ? state7   : state6;
+  const activeActions = wordLength === 5 ? actions5 : wordLength === 7 ? actions7 : actions6;
+
+  // Per-mode stats (each tracks its own localStorage)
+  const { stats: stats5, recordGame: recordGame5 } = useStats(5);
+  const { stats: stats6, recordGame: recordGame6 } = useStats(6);
+  const { stats: stats7, recordGame: recordGame7 } = useStats(7);
+  const activeStats = wordLength === 5 ? stats5 : wordLength === 7 ? stats7 : stats6;
+
   const { remotePlayers, sendProgress } = useMultiplayer(auth);
   const [showResult, setShowResult] = useState(false);
-  const [guildRecords, setGuildRecords] = useState<GuildRecord[]>([]);
+
+  // Guild progress pre-fetched for all three modes — instant on mode switch
+  const [guildRecords5, setGuildRecords5] = useState<GuildRecord[]>([]);
+  const [guildRecords6, setGuildRecords6] = useState<GuildRecord[]>([]);
+  const [guildRecords7, setGuildRecords7] = useState<GuildRecord[]>([]);
+  const activeGuildRecords = wordLength === 5 ? guildRecords5 : wordLength === 7 ? guildRecords7 : guildRecords6;
 
   useEffect(() => {
     if (!guildId) return;
-    const fetch_ = () => {
-      fetch(`/.proxy/api/guild-progress?guildId=${guildId}&date=${today}&wordLength=${wordLength}`)
-        .then((r) => r.json())
-        .then(setGuildRecords)
-        .catch(() => {});
-    };
+    const fetch_ = () =>
+      fetch(`/.proxy/api/guild-progress?guildId=${guildId}&date=${today}&wordLength=5`)
+        .then((r) => r.json()).then(setGuildRecords5).catch(() => {});
     fetch_();
     const id = setInterval(fetch_, 30_000);
     return () => clearInterval(id);
-  }, [guildId, wordLength, today]);
+  }, [guildId, today]);
 
+  useEffect(() => {
+    if (!guildId) return;
+    const fetch_ = () =>
+      fetch(`/.proxy/api/guild-progress?guildId=${guildId}&date=${today}&wordLength=6`)
+        .then((r) => r.json()).then(setGuildRecords6).catch(() => {});
+    fetch_();
+    const id = setInterval(fetch_, 30_000);
+    return () => clearInterval(id);
+  }, [guildId, today]);
+
+  useEffect(() => {
+    if (!guildId) return;
+    const fetch_ = () =>
+      fetch(`/.proxy/api/guild-progress?guildId=${guildId}&date=${today}&wordLength=7`)
+        .then((r) => r.json()).then(setGuildRecords7).catch(() => {});
+    fetch_();
+    const id = setInterval(fetch_, 30_000);
+    return () => clearInterval(id);
+  }, [guildId, today]);
+
+  // Close result modal when switching modes
   useEffect(() => {
     setShowResult(false);
   }, [wordLength]);
 
-  // Send full evaluations whenever guesses change or mode changes (server replaces, never accumulates)
-  const prevGuessCount = useRef(state.guesses.length);
+  // Record stats per mode independently (fires only when that mode's game ends)
   useEffect(() => {
-    const newCount = state.guesses.length;
-    if (newCount !== prevGuessCount.current) {
-      sendProgress(state.evaluations, wordLength);
-    }
-    prevGuessCount.current = newCount;
-  }, [state.guesses.length]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (state5.gameStatus !== "playing") recordGame5(state5.gameStatus, state5.guesses.length, state5.dayNumber);
+  }, [state5.gameStatus]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (state6.gameStatus !== "playing") recordGame6(state6.gameStatus, state6.guesses.length, state6.dayNumber);
+  }, [state6.gameStatus]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (state7.gameStatus !== "playing") recordGame7(state7.gameStatus, state7.guesses.length, state7.dayNumber);
+  }, [state7.gameStatus]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // On mode switch, broadcast the new mode's current state so peers see the reset
+  // Show result modal when the active mode finishes.
+  // gameEndKeyRef deduplicates so switching back to a finished mode doesn't re-show.
+  const gameEndKeyRef = useRef("");
+  useEffect(() => {
+    if (activeState.gameStatus !== "playing") {
+      const key = `${wordLength}:${activeState.gameStatus}`;
+      if (gameEndKeyRef.current === key) return;
+      gameEndKeyRef.current = key;
+      const delay = activeState.gameStatus === "won" ? 1800 : 2200;
+      const id = setTimeout(() => setShowResult(true), delay);
+      return () => clearTimeout(id);
+    }
+  }, [activeState.gameStatus, wordLength]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Single keyboard listener routing to the active mode only
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.altKey || e.metaKey) return;
+      activeActions.onKey(e.key);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [activeActions.onKey]);
+
+  // Send full evaluations whenever active mode's guess count changes
+  const prevGuessCountRef = useRef(activeState.guesses.length);
+  useEffect(() => {
+    const newCount = activeState.guesses.length;
+    if (newCount !== prevGuessCountRef.current) {
+      sendProgress(activeState.evaluations, wordLength);
+    }
+    prevGuessCountRef.current = newCount;
+  }, [activeState.guesses.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // On mode switch, broadcast the new mode's current state so peers see it
   const prevWordLengthRef = useRef(wordLength);
   useEffect(() => {
     if (prevWordLengthRef.current !== wordLength) {
       prevWordLengthRef.current = wordLength;
-      sendProgress(state.evaluations, wordLength);
+      sendProgress(activeState.evaluations, wordLength);
     }
   }, [wordLength]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (state.gameStatus !== "playing") {
-      recordGame(state.gameStatus, state.guesses.length, state.dayNumber);
-      const delay = state.gameStatus === "won" ? 1800 : 2200;
-      const id = setTimeout(() => setShowResult(true), delay);
-      return () => clearTimeout(id);
-    }
-  }, [state.gameStatus]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── ResizeObserver: dynamically shrink tiles when height is constrained ──
   const gameRef = useRef<HTMLDivElement>(null);
@@ -82,16 +144,9 @@ export function Game({ auth }: GameProps) {
     const h = el.clientHeight;
     const w = el.clientWidth;
 
-    // Width-based tile (mirrors the CSS clamp formula)
     const tileW = Math.min(56, Math.max(32, Math.floor((w - 64) / 7.5)));
 
-    // Height budget: header(50) + top padding(10) + board padding(16) + keyboard gap+padding(~30) + spectator(140)
     const FIXED = 50 + 10 + 16 + 30 + 140;
-    // board = 6 rows × tile + 5 gaps (~tile*0.09)
-    // keyboard = 3 rows × key + 2×6 gap
-    // key ≈ tile * 0.92
-    // total game area ≈ 6*tile + 5*(tile*0.09) + 3*(tile*0.92) + 12
-    //                 ≈ tile * (6 + 0.45 + 2.76) + 12 = tile * 9.21 + 12
     const availableForGame = h - FIXED;
     const tileH = Math.max(32, Math.floor((availableForGame - 12) / 9.21));
 
@@ -113,7 +168,7 @@ export function Game({ auth }: GameProps) {
       rafRef.current = requestAnimationFrame(recalcSizes);
     });
     ro.observe(el);
-    recalcSizes(); // initial calc
+    recalcSizes();
 
     return () => {
       ro.disconnect();
@@ -127,7 +182,7 @@ export function Game({ auth }: GameProps) {
         <h1>Hexordle</h1>
         <button
           className="stats-icon"
-          onClick={() => state.gameStatus !== "playing" && setShowResult(true)}
+          onClick={() => activeState.gameStatus !== "playing" && setShowResult(true)}
           aria-label="Statistics"
           title="Statistics"
         >
@@ -135,7 +190,7 @@ export function Game({ auth }: GameProps) {
         </button>
       </header>
 
-      {state.toast && <div className="toast">{state.toast}</div>}
+      {activeState.toast && <div className="toast">{activeState.toast}</div>}
 
       <div className="game-body">
         <div className="game-center">
@@ -156,13 +211,13 @@ export function Game({ auth }: GameProps) {
             </div>
 
             <Board
-              guesses={state.guesses}
-              evaluations={state.evaluations}
-              currentGuess={state.currentGuess}
-              shakeRow={state.shakeRow}
-              revealRow={state.revealRow}
-              pendingGuess={state.pendingGuess}
-              pendingEvaluation={state.pendingEvaluation}
+              guesses={activeState.guesses}
+              evaluations={activeState.evaluations}
+              currentGuess={activeState.currentGuess}
+              shakeRow={activeState.shakeRow}
+              revealRow={activeState.revealRow}
+              pendingGuess={activeState.pendingGuess}
+              pendingEvaluation={activeState.pendingEvaluation}
               wordLength={wordLength}
             />
 
@@ -171,9 +226,9 @@ export function Game({ auth }: GameProps) {
           </div>
 
           <Keyboard
-            keyboardColors={state.keyboardColors}
-            onKey={actions.onKey}
-            isValidating={state.isValidating}
+            keyboardColors={activeState.keyboardColors}
+            onKey={activeActions.onKey}
+            isValidating={activeState.isValidating}
           />
         </div>
       </div>
@@ -181,19 +236,19 @@ export function Game({ auth }: GameProps) {
       <aside className="spectator-aside">
         <SpectatorPanel
           players={remotePlayers}
-          guildRecords={guildRecords}
+          guildRecords={activeGuildRecords}
           myUserId={auth.user.id}
           wordLength={wordLength}
         />
       </aside>
 
-      {showResult && state.gameStatus !== "playing" && (
+      {showResult && activeState.gameStatus !== "playing" && (
         <ResultModal
-          gameStatus={state.gameStatus}
-          answer={state.answer}
-          evaluations={state.evaluations}
-          stats={stats}
-          dayNumber={state.dayNumber}
+          gameStatus={activeState.gameStatus}
+          answer={activeState.answer}
+          evaluations={activeState.evaluations}
+          stats={activeStats}
+          dayNumber={activeState.dayNumber}
           wordLength={wordLength}
           channelId={discordSdk?.channelId ?? null}
           guildId={discordSdk?.guildId ?? null}

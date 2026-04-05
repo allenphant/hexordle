@@ -304,27 +304,13 @@ export function useGameState(
     [gameStatus, revealRow, currentGuess, wordLength, showToast, submitGuess]
   );
 
-  // Physical keyboard listener
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.ctrlKey || e.altKey || e.metaKey) return;
-      onKey(e.key);
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onKey]);
-
-  // Guard: if guesses are from a different mode (wrong length), treat as empty
-  // This prevents a one-frame flicker where wordLength changed but state hasn't reset yet
-  const stableGuesses = guesses.every((g) => g.length === wordLength) ? guesses : [];
-  const stableEvaluations = stableGuesses.length > 0 ? evaluations.slice(0, stableGuesses.length) : [];
-  const keyboardColors = deriveKeyboardColors(stableGuesses, stableEvaluations);
+  const keyboardColors = deriveKeyboardColors(guesses, evaluations);
 
   const state: GameState = {
     answer,
     dayNumber,
-    guesses: stableGuesses,
-    evaluations: stableEvaluations,
+    guesses,
+    evaluations,
     currentGuess,
     gameStatus,
     shakeRow,
