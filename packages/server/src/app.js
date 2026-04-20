@@ -157,7 +157,8 @@ function roundedRect(ctx, x, y, w, h, r) {
 
 async function buildProgressImage(players, dayNumber, wordLength = 6) {
   if (!createCanvas || !loadImage) return null;
-  const gridW = wordLength * TILE_SIZE + (wordLength - 1) * TILE_GAP; // width varies by mode
+  const displayLength = wordLength === 0 ? 8 : wordLength; // eq mode sentinel → 8 tiles
+  const gridW = displayLength * TILE_SIZE + (displayLength - 1) * TILE_GAP; // width varies by mode
   const gridH = 6 * TILE_SIZE + 5 * TILE_GAP;                        // height always 6 rows
   const cardW = gridW + CARD_PAD * 2;
   const cardH = HEADER_H + gridH + CARD_PAD * 2;
@@ -231,7 +232,7 @@ async function buildProgressImage(players, dayNumber, wordLength = 6) {
     const gy = cy + HEADER_H + CARD_PAD;
 
     for (let row = 0; row < 6; row++) {
-      for (let col = 0; col < wordLength; col++) {
+      for (let col = 0; col < displayLength; col++) {
         const tx = gx + col * (TILE_SIZE + TILE_GAP);
         const ty = gy + row * (TILE_SIZE + TILE_GAP);
         const state = evals[row]?.[col];
@@ -317,7 +318,7 @@ async function autoEnsureGuildMessage(guildId, date, dayNumber, botToken, wordLe
       components: [{ type: 2, style: 1, label: "▶ Play now!", custom_id: "launch_hexordle" }],
     }];
 
-    const modeLabel = wordLength === 5 ? " (5-Letter)" : wordLength === 7 ? " (7-Letter)" : "";
+    const modeLabel = wordLength === 0 ? " (Eq)" : wordLength === 5 ? " (5-Letter)" : wordLength === 7 ? " (7-Letter)" : "";
     const postRes = await fetch(
       `https://discord.com/api/v10/channels/${channelId}/messages`,
       {
@@ -380,7 +381,7 @@ async function refreshGuildMessage(guildId, date, botToken, wordLength = 6) {
 
     // Try image-based update first
     const imageBuffer = await buildProgressImage(progress.rows, day_number, wordLength);
-    const modeLabel = wordLength === 5 ? " (5-Letter)" : wordLength === 7 ? " (7-Letter)" : "";
+    const modeLabel = wordLength === 0 ? " (Eq)" : wordLength === 5 ? " (5-Letter)" : wordLength === 7 ? " (7-Letter)" : "";
     if (imageBuffer) {
       const embed = {
         title: `Hexordle #${day_number}${modeLabel} — Today's Results`,
@@ -401,7 +402,7 @@ async function refreshGuildMessage(guildId, date, botToken, wordLength = 6) {
     }
 
     // Fallback: emoji grid embeds (one per player)
-    const emptyRow = "⬜".repeat(wordLength);
+    const emptyRow = "⬜".repeat(wordLength === 0 ? 8 : wordLength);
     const embeds = progress.rows.map((row) => {
       const evals = row.evaluations ?? [];
       const paddedRows = [...evals];
@@ -647,7 +648,7 @@ app.post("/api/post-result", async (req, res) => {
       }
 
       // No message yet — create the daily leaderboard message
-      const modeLabel = wl === 5 ? " (5-Letter)" : wl === 7 ? " (7-Letter)" : "";
+      const modeLabel = wl === 0 ? " (Eq)" : wl === 5 ? " (5-Letter)" : wl === 7 ? " (7-Letter)" : "";
       const postRes = await fetch(
         `https://discord.com/api/v10/channels/${channelId}/messages`,
         {

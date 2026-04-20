@@ -62,7 +62,7 @@ function PlayerCard({ userId, displayName, avatarHash, evaluations, score, wordL
       <div className="mini-grid">
         {Array(6).fill(null).map((_, i) => (
           <div key={i} className="mini-row">
-            {Array(wordLength).fill(null).map((__, j) => {
+            {Array(wordLength === 0 ? 8 : wordLength).fill(null).map((__, j) => {
               const state = evaluations[i]?.[j];
               return <span key={j} className="mini-tile" data-state={state ?? "empty"} />;
             })}
