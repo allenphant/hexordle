@@ -8,16 +8,20 @@ import { Keyboard } from "./Keyboard";
 import { ResultModal } from "./ResultModal";
 import { SpectatorPanel, GuildRecord } from "./SpectatorPanel";
 import { useDateCheck } from "../hooks/useDateCheck";
+import { useEquationState } from "../hooks/useEquationState";
+import { NumericKeyboard } from "./NumericKeyboard";
 
 interface GameProps {
   auth: AuthData;
 }
 
+type GameMode = 5 | 6 | 7 | "eq";
+
 export function Game({ auth }: GameProps) {
   const guildId = discordSdk?.guildId ?? undefined;
   const username = auth.user.global_name ?? auth.user.username;
 
-  const [wordLength, setWordLength] = useState<5 | 6 | 7>(6);
+  const [mode, setMode] = useState<GameMode>(6);
   const today = useDateCheck();
 
   // Pre-load all three modes simultaneously — mode switching is a pure view change,
@@ -25,15 +29,17 @@ export function Game({ auth }: GameProps) {
   const [state5, actions5] = useGameState(auth.user.id, guildId, username, auth.user.avatar, 5, today);
   const [state6, actions6] = useGameState(auth.user.id, guildId, username, auth.user.avatar, 6, today);
   const [state7, actions7] = useGameState(auth.user.id, guildId, username, auth.user.avatar, 7, today);
+  const [stateEq, actionsEq] = useEquationState(auth.user.id, guildId, username, auth.user.avatar, today);
 
-  const activeState   = wordLength === 5 ? state5   : wordLength === 7 ? state7   : state6;
-  const activeActions = wordLength === 5 ? actions5 : wordLength === 7 ? actions7 : actions6;
+  const activeState   = mode === "eq" ? stateEq   : mode === 5 ? state5   : mode === 7 ? state7   : state6;
+  const activeActions = mode === "eq" ? actionsEq : mode === 5 ? actions5 : mode === 7 ? actions7 : actions6;
 
   // Per-mode stats (each tracks its own localStorage)
   const { stats: stats5, recordGame: recordGame5 } = useStats(5);
   const { stats: stats6, recordGame: recordGame6 } = useStats(6);
   const { stats: stats7, recordGame: recordGame7 } = useStats(7);
-  const activeStats = wordLength === 5 ? stats5 : wordLength === 7 ? stats7 : stats6;
+  const { stats: statsEq, recordGame: recordGameEq } = useStats(0);
+  const activeStats = mode === "eq" ? statsEq : mode === 5 ? stats5 : mode === 7 ? stats7 : stats6;
 
   const { remotePlayers, sendProgress } = useMultiplayer(auth);
   const [showResult, setShowResult] = useState(false);
@@ -42,7 +48,8 @@ export function Game({ auth }: GameProps) {
   const [guildRecords5, setGuildRecords5] = useState<GuildRecord[]>([]);
   const [guildRecords6, setGuildRecords6] = useState<GuildRecord[]>([]);
   const [guildRecords7, setGuildRecords7] = useState<GuildRecord[]>([]);
-  const activeGuildRecords = wordLength === 5 ? guildRecords5 : wordLength === 7 ? guildRecords7 : guildRecords6;
+  const [guildRecordsEq, setGuildRecordsEq] = useState<GuildRecord[]>([]);
+  const activeGuildRecords = mode === "eq" ? guildRecordsEq : mode === 5 ? guildRecords5 : mode === 7 ? guildRecords7 : guildRecords6;
 
   useEffect(() => {
     if (!guildId) return;
@@ -74,10 +81,20 @@ export function Game({ auth }: GameProps) {
     return () => clearInterval(id);
   }, [guildId, today]);
 
+  useEffect(() => {
+    if (!guildId) return;
+    const fetch_ = () =>
+      fetch(`/.proxy/api/guild-progress?guildId=${guildId}&date=${today}&wordLength=0`)
+        .then((r) => r.json()).then(setGuildRecordsEq).catch(() => {});
+    fetch_();
+    const id = setInterval(fetch_, 30_000);
+    return () => clearInterval(id);
+  }, [guildId, today]);
+
   // Close result modal when switching modes
   useEffect(() => {
     setShowResult(false);
-  }, [wordLength]);
+  }, [mode]);
 
   // Record stats per mode independently (fires only when that mode's game ends)
   useEffect(() => {
@@ -89,20 +106,23 @@ export function Game({ auth }: GameProps) {
   useEffect(() => {
     if (state7.gameStatus !== "playing") recordGame7(state7.gameStatus, state7.guesses.length, state7.dayNumber);
   }, [state7.gameStatus]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (stateEq.gameStatus !== "playing") recordGameEq(stateEq.gameStatus, stateEq.guesses.length, stateEq.dayNumber);
+  }, [stateEq.gameStatus]); // eslint-disable-line
 
   // Show result modal when the active mode finishes.
   // gameEndKeyRef deduplicates so switching back to a finished mode doesn't re-show.
   const gameEndKeyRef = useRef("");
   useEffect(() => {
     if (activeState.gameStatus !== "playing") {
-      const key = `${wordLength}:${activeState.gameStatus}`;
+      const key = `${mode}:${activeState.gameStatus}`;
       if (gameEndKeyRef.current === key) return;
       gameEndKeyRef.current = key;
       const delay = activeState.gameStatus === "won" ? 1800 : 2200;
       const id = setTimeout(() => setShowResult(true), delay);
       return () => clearTimeout(id);
     }
-  }, [activeState.gameStatus, wordLength]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeState.gameStatus, mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Single keyboard listener routing to the active mode only
   useEffect(() => {
@@ -119,19 +139,19 @@ export function Game({ auth }: GameProps) {
   useEffect(() => {
     const newCount = activeState.guesses.length;
     if (newCount !== prevGuessCountRef.current) {
-      sendProgress(activeState.evaluations, wordLength);
+      sendProgress(activeState.evaluations, mode === "eq" ? 0 : mode);
     }
     prevGuessCountRef.current = newCount;
   }, [activeState.guesses.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // On mode switch, broadcast the new mode's current state so peers see it
-  const prevWordLengthRef = useRef(wordLength);
+  const prevModeRef = useRef<GameMode>(mode);
   useEffect(() => {
-    if (prevWordLengthRef.current !== wordLength) {
-      prevWordLengthRef.current = wordLength;
-      sendProgress(activeState.evaluations, wordLength);
+    if (prevModeRef.current !== mode) {
+      prevModeRef.current = mode;
+      sendProgress(activeState.evaluations, mode === "eq" ? 0 : mode);
     }
-  }, [wordLength]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── ResizeObserver: dynamically shrink tiles when height is constrained ──
   const gameRef = useRef<HTMLDivElement>(null);
@@ -198,14 +218,14 @@ export function Game({ auth }: GameProps) {
           {/* Board row: tabs fill the natural left margin beside the board */}
           <div className="board-row">
             <div className="mode-tabs-v">
-              {([5, 6, 7] as const).map((n) => (
+              {([5, 6, 7, "eq"] as const).map((m) => (
                 <button
-                  key={n}
-                  className={`mode-tab${wordLength === n ? " mode-tab--active" : ""}`}
-                  onClick={() => setWordLength(n)}
-                  aria-label={`${n}-letter mode`}
+                  key={m}
+                  className={`mode-tab${mode === m ? " mode-tab--active" : ""}`}
+                  onClick={() => setMode(m)}
+                  aria-label={m === "eq" ? "Equation mode" : `${m}-letter mode`}
                 >
-                  {n}
+                  {m === "eq" ? "=" : m}
                 </button>
               ))}
             </div>
@@ -218,18 +238,25 @@ export function Game({ auth }: GameProps) {
               revealRow={activeState.revealRow}
               pendingGuess={activeState.pendingGuess}
               pendingEvaluation={activeState.pendingEvaluation}
-              wordLength={wordLength}
+              wordLength={mode === "eq" ? 8 : mode}
             />
 
             {/* Mirror spacer keeps the board visually centered */}
             <div className="mode-tabs-mirror" aria-hidden="true" />
           </div>
 
-          <Keyboard
-            keyboardColors={activeState.keyboardColors}
-            onKey={activeActions.onKey}
-            isValidating={activeState.isValidating}
-          />
+          {mode === "eq" ? (
+            <NumericKeyboard
+              keyboardColors={activeState.keyboardColors}
+              onKey={activeActions.onKey}
+            />
+          ) : (
+            <Keyboard
+              keyboardColors={activeState.keyboardColors}
+              onKey={activeActions.onKey}
+              isValidating={activeState.isValidating}
+            />
+          )}
         </div>
       </div>
 
@@ -238,7 +265,7 @@ export function Game({ auth }: GameProps) {
           players={remotePlayers}
           guildRecords={activeGuildRecords}
           myUserId={auth.user.id}
-          wordLength={wordLength}
+          wordLength={mode === "eq" ? 0 : mode}
         />
       </aside>
 
@@ -249,7 +276,7 @@ export function Game({ auth }: GameProps) {
           evaluations={activeState.evaluations}
           stats={activeStats}
           dayNumber={activeState.dayNumber}
-          wordLength={wordLength}
+          wordLength={mode === "eq" ? 0 : mode}
           channelId={discordSdk?.channelId ?? null}
           guildId={discordSdk?.guildId ?? null}
           userId={auth.user.id}
