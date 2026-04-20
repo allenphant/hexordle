@@ -157,7 +157,8 @@ export function ResultModal({
 
         {gameStatus === "lost" && (
           <p className="modal-answer">
-            The word was <strong>{answer.toUpperCase()}</strong>
+            {wordLength === 0 ? "The equation was" : "The word was"}{" "}
+            <strong>{answer.toUpperCase()}</strong>
           </p>
         )}
 

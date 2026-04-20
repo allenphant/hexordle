@@ -26,7 +26,8 @@ export function generateShareText(
 ): string {
   const day = getDayNumber();
   const score = won ? evaluations.length : "X";
-  const header = `Hexordle #${day} (${wordLength}L) ${score}/6`;
+  const modeLabel = wordLength === 0 ? "Eq" : `${wordLength}L`;
+  const header = `Hexordle #${day} (${modeLabel}) ${score}/6`;
   const grid = evaluations
     .map((row) => row.map((s) => EMOJI[s]).join(""))
     .join("\n");
