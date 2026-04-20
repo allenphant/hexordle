@@ -238,7 +238,7 @@ function evalSide(expr: string): number {
 
 // ─── Validator ─────────────────────────────────────────────────────────────
 const VALID_CHARS = new Set([..."0123456789+=()", MINUS, TIMES, DIVID, SUPER2]);
-const AFTER_SUPER2_OK = new Set([..."0123456789)"]);
+const BEFORE_SUPER2_OK = new Set([..."0123456789)"]); // chars allowed immediately before ²
 
 export function isValidEquation(eq: string): { valid: true } | { valid: false; reason: string } {
   // Layer 1: syntax
@@ -258,7 +258,7 @@ export function isValidEquation(eq: string): { valid: true } | { valid: false; r
 
   for (let i = 0; i < eq.length; i++) {
     if (eq[i] === SUPER2) {
-      if (i === 0 || !AFTER_SUPER2_OK.has(eq[i - 1])) {
+      if (i === 0 || !BEFORE_SUPER2_OK.has(eq[i - 1])) {
         return { valid: false, reason: "Invalid use of \u00B2" };
       }
     }
