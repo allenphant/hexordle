@@ -205,6 +205,11 @@ body {
   flex: 0 0 auto;
 }
 
+/* Equation mode: 8 tiles need smaller tiles to fit alongside the mode tabs */
+.board[data-word-length="8"] {
+  --tile-size: clamp(28px, calc((100vw - 68px) / 8.6), 46px);
+}
+
 .row {
   display: flex;
   gap: var(--tile-gap);

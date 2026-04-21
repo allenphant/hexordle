@@ -25,7 +25,7 @@ export function Board({
   const rows = Array(6).fill(null);
 
   return (
-    <div className="board">
+    <div className="board" data-word-length={wordLength}>
       {rows.map((_, i) => {
         // Row currently being revealed (animation phase)
         if (revealRow !== null && i === revealRow) {
