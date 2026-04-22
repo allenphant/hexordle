@@ -265,7 +265,12 @@ function getYesterdayDate() {
 }
 
 async function autoEnsureGuildMessage(guildId, date, dayNumber, botToken, wordLength = 6) {
-  if (!pool || !botToken || !guildId) return;
+  const tag = `[Bot][wl=${wordLength}][${date}]`;
+  if (!pool || !botToken || !guildId) {
+    console.log(`${tag} autoEnsureGuildMessage skipped: pool=${!!pool} botToken=${!!botToken} guildId=${!!guildId}`);
+    return;
+  }
+  console.log(`${tag} autoEnsureGuildMessage called guildId=${guildId}`);
   try {
     const existing = await pool.query(
       "SELECT channel_id, message_id, created_at FROM channel_daily_message WHERE guild_id = $1 AND date = $2 AND word_length = $3",
@@ -273,14 +278,17 @@ async function autoEnsureGuildMessage(guildId, date, dayNumber, botToken, wordLe
     );
 
     if (existing.rows.length > 0) {
-      const { created_at } = existing.rows[0];
+      const { channel_id, message_id, created_at } = existing.rows[0];
       const ageHours = (Date.now() - new Date(created_at).getTime()) / 3_600_000;
+      console.log(`${tag} existing message found: channel=${channel_id} msg=${message_id} age=${ageHours.toFixed(2)}h`);
       if (ageHours < 3) {
-        // Message is fresh — just edit it
+        console.log(`${tag} message fresh (<3h) — refreshing`);
         refreshGuildMessage(guildId, date, botToken, wordLength);
         return;
       }
-      // Message is stale (>3h) — fall through to create a new one
+      console.log(`${tag} message stale (>3h) — creating new`);
+    } else {
+      console.log(`${tag} no existing message — creating new`);
     }
 
     // Find which text channel to post in:
@@ -293,6 +301,7 @@ async function autoEnsureGuildMessage(guildId, date, dayNumber, botToken, wordLe
         [guildId, getYesterdayDate(), wordLength]
       );
       channelId = prev.rows[0]?.channel_id ?? null;
+      if (channelId) console.log(`${tag} reusing yesterday's channel=${channelId}`);
     }
 
     // 2. Find the preferred channel ("窩斗"), fall back to first text channel
@@ -301,6 +310,7 @@ async function autoEnsureGuildMessage(guildId, date, dayNumber, botToken, wordLe
         `https://discord.com/api/v10/guilds/${guildId}/channels`,
         { headers: { Authorization: `Bot ${botToken}` } }
       );
+      console.log(`${tag} GET guild channels => HTTP ${chRes.status}`);
       if (chRes.ok) {
         const all = await chRes.json();
         const textChannels = all
@@ -308,10 +318,17 @@ async function autoEnsureGuildMessage(guildId, date, dayNumber, botToken, wordLe
           .sort((a, b) => a.position - b.position);
         const preferred = textChannels.find((c) => c.name === "窩斗");
         channelId = (preferred ?? textChannels[0])?.id ?? null;
+        console.log(`${tag} resolved channel=${channelId} (preferred=${!!preferred})`);
+      } else {
+        const body = await chRes.text();
+        console.error(`${tag} GET guild channels failed: ${body}`);
       }
     }
 
-    if (!channelId) return;
+    if (!channelId) {
+      console.error(`${tag} no channelId found — aborting`);
+      return;
+    }
 
     const components = [{
       type: 1,
@@ -330,9 +347,15 @@ async function autoEnsureGuildMessage(guildId, date, dayNumber, botToken, wordLe
         }),
       }
     );
-    if (!postRes.ok) return;
+    console.log(`${tag} POST new message => HTTP ${postRes.status}`);
+    if (!postRes.ok) {
+      const body = await postRes.text();
+      console.error(`${tag} POST new message failed: ${body}`);
+      return;
+    }
 
     const posted = await postRes.json();
+    console.log(`${tag} new message created id=${posted.id}`);
     await pool.query(
       `INSERT INTO channel_daily_message (guild_id, date, channel_id, message_id, day_number, word_length, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, NOW())
@@ -353,14 +376,19 @@ async function autoEnsureGuildMessage(guildId, date, dayNumber, botToken, wordLe
 const GRID_EMOJI_MAP = { correct: "🟩", present: "🟨", absent: "⬛" };
 
 async function refreshGuildMessage(guildId, date, botToken, wordLength = 6) {
+  const tag = `[Bot][wl=${wordLength}][${date}]`;
   if (!pool || !botToken) return;
   try {
     const msgRow = await pool.query(
       "SELECT channel_id, message_id, day_number FROM channel_daily_message WHERE guild_id = $1 AND date = $2 AND word_length = $3",
       [guildId, date, wordLength]
     );
-    if (msgRow.rows.length === 0) return;
+    if (msgRow.rows.length === 0) {
+      console.log(`${tag} refreshGuildMessage: no message row in DB`);
+      return;
+    }
     const { channel_id, message_id, day_number } = msgRow.rows[0];
+    console.log(`${tag} refreshGuildMessage: patching channel=${channel_id} msg=${message_id}`);
 
     const progress = await pool.query(
       `SELECT user_id, username, avatar_hash, evaluations, completed, won, jsonb_array_length(guesses) AS guess_count
@@ -369,7 +397,11 @@ async function refreshGuildMessage(guildId, date, botToken, wordLength = 6) {
        ORDER BY completed DESC, jsonb_array_length(guesses) ASC`,
       [guildId, date, wordLength]
     );
-    if (progress.rows.length === 0) return;
+    if (progress.rows.length === 0) {
+      console.log(`${tag} refreshGuildMessage: no player progress yet`);
+      return;
+    }
+    console.log(`${tag} refreshGuildMessage: ${progress.rows.length} player(s)`);
 
     const components = [{
       type: 1,
@@ -397,7 +429,12 @@ async function refreshGuildMessage(guildId, date, botToken, wordLength = 6) {
       const form = new FormData();
       form.append("payload_json", JSON.stringify(payload));
       form.append("files[0]", new Blob([imageBuffer], { type: "image/png" }), "progress.png");
-      await fetch(patchUrl, { method: "PATCH", headers: authHeader, body: form });
+      const patchRes = await fetch(patchUrl, { method: "PATCH", headers: authHeader, body: form });
+      console.log(`${tag} PATCH (image) => HTTP ${patchRes.status}`);
+      if (!patchRes.ok) {
+        const body = await patchRes.text();
+        console.error(`${tag} PATCH (image) failed: ${body}`);
+      }
       return;
     }
 
@@ -421,11 +458,16 @@ async function refreshGuildMessage(guildId, date, botToken, wordLength = 6) {
       };
     });
 
-    await fetch(patchUrl, {
+    const patchRes = await fetch(patchUrl, {
       method: "PATCH",
       headers: { ...authHeader, "Content-Type": "application/json" },
       body: JSON.stringify({ embeds, components }),
     });
+    console.log(`${tag} PATCH (emoji) => HTTP ${patchRes.status}`);
+    if (!patchRes.ok) {
+      const body = await patchRes.text();
+      console.error(`${tag} PATCH (emoji) failed: ${body}`);
+    }
   } catch (err) {
     console.error("[Bot] refreshGuildMessage error:", err);
   }
@@ -530,6 +572,7 @@ app.post("/api/progress", async (req, res) => {
   if (!pool) return res.json({ ok: true });
   const { userId, date, dayNumber, guesses, evaluations, completed, won, guildId, username, avatarHash, wordLength } = req.body;
   const wl = wordLength ?? 6;
+  console.log(`[API] POST /api/progress userId=${userId} date=${date} wl=${wl} guildId=${guildId ?? "null"} guesses=${(guesses ?? []).length}`);
   if (!userId || !date) return res.status(400).json({ error: "userId and date required" });
   try {
     await pool.query(
@@ -547,7 +590,11 @@ app.post("/api/progress", async (req, res) => {
     );
     res.json({ ok: true });
     // Fire-and-forget: auto-create or refresh the guild's daily message
-    if (guildId) autoEnsureGuildMessage(guildId, date, dayNumber, process.env.BOT_TOKEN, wl);
+    if (guildId) {
+      autoEnsureGuildMessage(guildId, date, dayNumber, process.env.BOT_TOKEN, wl);
+    } else {
+      console.log(`[API] POST /api/progress — guildId missing, skipping Discord message`);
+    }
   } catch (err) {
     console.error("[DB] Error saving progress:", err);
     res.json({ ok: true });
@@ -620,6 +667,7 @@ app.post("/api/token", async (req, res) => {
 app.post("/api/post-result", async (req, res) => {
   const { dayNumber, date, channelId, guildId, wordLength } = req.body;
   const wl = wordLength ?? 6;
+  console.log(`[API] POST /api/post-result date=${date} wl=${wl} guildId=${guildId ?? "null"} channelId=${channelId ?? "null"}`);
   const botToken = process.env.BOT_TOKEN;
   if (!botToken) return res.status(503).json({ error: "BOT_TOKEN not configured" });
   if (!channelId) return res.status(400).json({ error: "channelId required" });
