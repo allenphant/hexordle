@@ -295,7 +295,7 @@ export function useGameState(
           return;
         }
 
-        const word = currentGuess;
+        const word = currentGuess.toLowerCase();
         validatingRef.current = true;
         setIsValidating(true);
 
