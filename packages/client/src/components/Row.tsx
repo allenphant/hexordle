@@ -7,9 +7,11 @@ interface RowProps {
   reveal?: boolean;
   shake?: boolean;
   wordLength?: number;
+  cursorPos?: number;
+  onTileClick?: (index: number) => void;
 }
 
-export function Row({ letters, evaluation, reveal, shake, wordLength = 6 }: RowProps) {
+export function Row({ letters, evaluation, reveal, shake, wordLength = 6, cursorPos, onTileClick }: RowProps) {
   const tiles = Array(wordLength).fill(null);
 
   return (
@@ -21,7 +23,9 @@ export function Row({ letters, evaluation, reveal, shake, wordLength = 6 }: RowP
           state={evaluation?.[i]}
           reveal={reveal && !!evaluation}
           revealDelay={i * 150}
-          active={!evaluation && !!letters[i]}
+          active={!evaluation && !!letters[i]?.trim()}
+          isCursor={cursorPos !== undefined && i === cursorPos}
+          onClick={onTileClick ? () => onTileClick(i) : undefined}
         />
       ))}
     </div>
