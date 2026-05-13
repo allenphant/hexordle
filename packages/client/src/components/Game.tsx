@@ -239,6 +239,8 @@ export function Game({ auth }: GameProps) {
               pendingGuess={activeState.pendingGuess}
               pendingEvaluation={activeState.pendingEvaluation}
               wordLength={mode === "eq" ? 8 : mode}
+              cursorPos={activeState.cursorPos}
+              onTileClick={activeActions.onTileClick}
             />
 
             {/* Mirror spacer keeps the board visually centered */}
