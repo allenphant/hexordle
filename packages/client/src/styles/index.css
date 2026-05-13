@@ -257,6 +257,17 @@ body {
   100% { transform: scale(1); }
 }
 
+.tile--cursor {
+  border-color: #999;
+  animation: blink-border 1s step-end infinite;
+  cursor: pointer;
+}
+
+@keyframes blink-border {
+  0%, 100% { border-color: #999; }
+  50%       { border-color: transparent; }
+}
+
 /* Flip animation */
 .tile--reveal {
   animation: flip var(--reveal-delay, 0ms) step-end forwards,
