@@ -103,7 +103,7 @@ export interface GameState {
   guesses: string[];
   evaluations: TileState[][];
   currentGuess: string;
-  cursorPos: number;             // NEW
+  cursorPos: number;
   gameStatus: GameStatus;
   shakeRow: boolean;
   revealRow: number | null;
@@ -116,7 +116,7 @@ export interface GameState {
 
 export interface GameActions {
   onKey: (key: string) => void;
-  onTileClick: (index: number) => void;  // NEW
+  onTileClick: (index: number) => void;
 }
 
 function deriveKeyboardColors(
@@ -186,8 +186,8 @@ export function useGameState(
     setGuesses(modeState?.guesses ?? []);
     setEvaluations(modeState?.evaluations ?? []);
     setGameStatus(modeState?.gameStatus ?? "playing");
-    setCurrentGuess(' '.repeat(wordLength));   // CHANGED from ""
-    setCursorPos(0);                            // NEW
+    setCurrentGuess(' '.repeat(wordLength));
+    setCursorPos(0);
     setShakeRow(false);
     setRevealRow(null);
     setPendingGuess("");
@@ -230,8 +230,8 @@ export function useGameState(
       setPendingGuess(guess);
       setPendingEvaluation(evaluation);
       setRevealRow(rowIndex);
-      setCurrentGuess(' '.repeat(wordLength));   // CHANGED
-      setCursorPos(0);                            // NEW
+      setCurrentGuess(' '.repeat(wordLength));
+      setCursorPos(0);
 
       const REVEAL_DURATION = wordLength * 150 + 500;
 
@@ -264,23 +264,22 @@ export function useGameState(
 
   const onKey = useCallback(
     (key: string) => {
+      const pos = cursorPos;  // snapshot to avoid stale-closure in updaters
       if (gameStatus !== "playing") return;
       if (revealRow !== null) return;
       if (validatingRef.current) return;
 
       if (key === "Backspace") {
-        if (currentGuess[cursorPos] !== ' ') {
-          // Delete at cursor, cursor stays
+        if (currentGuess[pos] !== ' ') {
           setCurrentGuess((g) => {
             const chars = g.split('');
-            chars[cursorPos] = ' ';
+            chars[pos] = ' ';
             return chars.join('');
           });
-        } else if (cursorPos > 0) {
-          // Cursor on empty tile: retreat left and delete
+        } else if (pos > 0) {
           setCurrentGuess((g) => {
             const chars = g.split('');
-            chars[cursorPos - 1] = ' ';
+            chars[pos - 1] = ' ';
             return chars.join('');
           });
           setCursorPos((p) => p - 1);
@@ -289,14 +288,14 @@ export function useGameState(
       }
 
       if (key === "Enter") {
-        if (currentGuess.includes(' ')) {   // CHANGED from length check
+        if (currentGuess.includes(' ')) {
           setShakeRow(true);
           showToast("Not enough letters");
           setTimeout(() => setShakeRow(false), 600);
           return;
         }
 
-        const word = currentGuess.toLowerCase();
+        const word = currentGuess;
         validatingRef.current = true;
         setIsValidating(true);
 
@@ -317,16 +316,16 @@ export function useGameState(
         return;
       }
 
-      if (/^[a-zA-Z]$/.test(key)) {   // REMOVED length guard (cursor handles bounds)
+      if (/^[a-zA-Z]$/.test(key)) {
         setCurrentGuess((g) => {
           const chars = g.split('');
-          chars[cursorPos] = key.toLowerCase();
+          chars[pos] = key.toLowerCase();
           return chars.join('');
         });
         setCursorPos((p) => Math.min(p + 1, wordLength - 1));
       }
     },
-    [gameStatus, revealRow, currentGuess, cursorPos, wordLength, showToast, submitGuess]  // added cursorPos
+    [gameStatus, revealRow, currentGuess, cursorPos, wordLength, showToast, submitGuess]
   );
 
   const onTileClick = useCallback(
@@ -347,7 +346,7 @@ export function useGameState(
     guesses,
     evaluations,
     currentGuess,
-    cursorPos,           // NEW
+    cursorPos,
     gameStatus,
     shakeRow,
     revealRow,
@@ -358,5 +357,5 @@ export function useGameState(
     isValidating,
   };
 
-  return [state, { onKey, onTileClick }];   // added onTileClick
+  return [state, { onKey, onTileClick }];
 }
