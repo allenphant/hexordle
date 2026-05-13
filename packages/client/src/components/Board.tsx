@@ -10,6 +10,8 @@ interface BoardProps {
   pendingGuess?: string;
   pendingEvaluation?: TileState[];
   wordLength?: number;
+  cursorPos?: number;
+  onTileClick?: (index: number) => void;
 }
 
 export function Board({
@@ -21,13 +23,14 @@ export function Board({
   pendingGuess,
   pendingEvaluation,
   wordLength = 6,
+  cursorPos,
+  onTileClick,
 }: BoardProps) {
   const rows = Array(6).fill(null);
 
   return (
     <div className="board" data-word-length={wordLength}>
       {rows.map((_, i) => {
-        // Row currently being revealed (animation phase)
         if (revealRow !== null && i === revealRow) {
           return (
             <Row
@@ -42,7 +45,6 @@ export function Board({
         }
 
         if (i < guesses.length) {
-          // Completed row
           return (
             <Row
               key={i}
@@ -56,18 +58,18 @@ export function Board({
         }
 
         if (revealRow === null && i === guesses.length) {
-          // Active input row
           return (
             <Row
               key={i}
               letters={currentGuess}
               shake={shakeRow}
               wordLength={wordLength}
+              cursorPos={cursorPos}
+              onTileClick={onTileClick}
             />
           );
         }
 
-        // Empty row
         return <Row key={i} letters="" wordLength={wordLength} />;
       })}
     </div>
