@@ -257,10 +257,10 @@ body {
   100% { transform: scale(1); }
 }
 
-.tile--cursor {
+.tile--cursor,
+.tile--cursor[data-state="tbd"] {
   border-color: #999;
   animation: blink-border 1s step-end infinite;
-  cursor: pointer;
 }
 
 @keyframes blink-border {

@@ -23,7 +23,6 @@ export function Row({ letters, evaluation, reveal, shake, wordLength = 6, cursor
           state={evaluation?.[i]}
           reveal={reveal && !!evaluation}
           revealDelay={i * 150}
-          active={!evaluation && !!letters[i]?.trim()}
           isCursor={cursorPos !== undefined && i === cursorPos}
           onClick={onTileClick ? () => onTileClick(i) : undefined}
         />
