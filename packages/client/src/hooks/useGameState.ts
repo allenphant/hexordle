@@ -103,6 +103,7 @@ export interface GameState {
   guesses: string[];
   evaluations: TileState[][];
   currentGuess: string;
+  cursorPos: number;             // NEW
   gameStatus: GameStatus;
   shakeRow: boolean;
   revealRow: number | null;
@@ -115,6 +116,7 @@ export interface GameState {
 
 export interface GameActions {
   onKey: (key: string) => void;
+  onTileClick: (index: number) => void;  // NEW
 }
 
 function deriveKeyboardColors(
@@ -152,7 +154,8 @@ export function useGameState(
   const [evaluations, setEvaluations] = useState<TileState[][]>(
     saved?.evaluations ?? []
   );
-  const [currentGuess, setCurrentGuess] = useState("");
+  const [currentGuess, setCurrentGuess] = useState(' '.repeat(wordLength));
+  const [cursorPos, setCursorPos] = useState(0);
   const [gameStatus, setGameStatus] = useState<GameStatus>(
     saved?.gameStatus ?? "playing"
   );
@@ -183,7 +186,8 @@ export function useGameState(
     setGuesses(modeState?.guesses ?? []);
     setEvaluations(modeState?.evaluations ?? []);
     setGameStatus(modeState?.gameStatus ?? "playing");
-    setCurrentGuess("");
+    setCurrentGuess(' '.repeat(wordLength));   // CHANGED from ""
+    setCursorPos(0);                            // NEW
     setShakeRow(false);
     setRevealRow(null);
     setPendingGuess("");
@@ -226,7 +230,8 @@ export function useGameState(
       setPendingGuess(guess);
       setPendingEvaluation(evaluation);
       setRevealRow(rowIndex);
-      setCurrentGuess("");
+      setCurrentGuess(' '.repeat(wordLength));   // CHANGED
+      setCursorPos(0);                            // NEW
 
       const REVEAL_DURATION = wordLength * 150 + 500;
 
@@ -264,12 +269,27 @@ export function useGameState(
       if (validatingRef.current) return;
 
       if (key === "Backspace") {
-        setCurrentGuess((g) => g.slice(0, -1));
+        if (currentGuess[cursorPos] !== ' ') {
+          // Delete at cursor, cursor stays
+          setCurrentGuess((g) => {
+            const chars = g.split('');
+            chars[cursorPos] = ' ';
+            return chars.join('');
+          });
+        } else if (cursorPos > 0) {
+          // Cursor on empty tile: retreat left and delete
+          setCurrentGuess((g) => {
+            const chars = g.split('');
+            chars[cursorPos - 1] = ' ';
+            return chars.join('');
+          });
+          setCursorPos((p) => p - 1);
+        }
         return;
       }
 
       if (key === "Enter") {
-        if (currentGuess.length < wordLength) {
+        if (currentGuess.includes(' ')) {   // CHANGED from length check
           setShakeRow(true);
           showToast("Not enough letters");
           setTimeout(() => setShakeRow(false), 600);
@@ -297,11 +317,26 @@ export function useGameState(
         return;
       }
 
-      if (/^[a-zA-Z]$/.test(key) && currentGuess.length < wordLength) {
-        setCurrentGuess((g) => g + key.toLowerCase());
+      if (/^[a-zA-Z]$/.test(key)) {   // REMOVED length guard (cursor handles bounds)
+        setCurrentGuess((g) => {
+          const chars = g.split('');
+          chars[cursorPos] = key.toLowerCase();
+          return chars.join('');
+        });
+        setCursorPos((p) => Math.min(p + 1, wordLength - 1));
       }
     },
-    [gameStatus, revealRow, currentGuess, wordLength, showToast, submitGuess]
+    [gameStatus, revealRow, currentGuess, cursorPos, wordLength, showToast, submitGuess]  // added cursorPos
+  );
+
+  const onTileClick = useCallback(
+    (index: number) => {
+      if (gameStatus !== "playing") return;
+      if (revealRow !== null) return;
+      if (validatingRef.current) return;
+      setCursorPos(index);
+    },
+    [gameStatus, revealRow]
   );
 
   const keyboardColors = deriveKeyboardColors(guesses, evaluations);
@@ -312,6 +347,7 @@ export function useGameState(
     guesses,
     evaluations,
     currentGuess,
+    cursorPos,           // NEW
     gameStatus,
     shakeRow,
     revealRow,
@@ -322,5 +358,5 @@ export function useGameState(
     isValidating,
   };
 
-  return [state, { onKey }];
+  return [state, { onKey, onTileClick }];   // added onTileClick
 }
