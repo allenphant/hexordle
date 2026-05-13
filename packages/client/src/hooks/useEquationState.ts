@@ -105,6 +105,7 @@ export interface EquationState {
   guesses: string[];
   evaluations: TileState[][];
   currentGuess: string;
+  cursorPos: number;
   gameStatus: GameStatus;
   shakeRow: boolean;
   revealRow: number | null;
@@ -112,11 +113,12 @@ export interface EquationState {
   pendingEvaluation: TileState[] | undefined;
   toast: string | null;
   keyboardColors: Map<string, TileState>;
-  isValidating: false; // always false — validation is synchronous
+  isValidating: false;
 }
 
 export interface EquationActions {
   onKey: (key: string) => void;
+  onTileClick: (index: number) => void;
 }
 
 export function useEquationState(
@@ -132,7 +134,8 @@ export function useEquationState(
   const saved = loadSaved();
   const [guesses,    setGuesses]    = useState<string[]>(saved?.guesses ?? []);
   const [evaluations, setEvaluations] = useState<TileState[][]>(saved?.evaluations ?? []);
-  const [currentGuess, setCurrentGuess] = useState("");
+  const [currentGuess, setCurrentGuess] = useState(' '.repeat(WORD_LENGTH));
+  const [cursorPos, setCursorPos] = useState(0);
   const [gameStatus,   setGameStatus]   = useState<GameStatus>(saved?.gameStatus ?? "playing");
   const [shakeRow,  setShakeRow]  = useState(false);
   const [revealRow, setRevealRow] = useState<number | null>(null);
@@ -150,7 +153,8 @@ export function useEquationState(
     setGuesses(s?.guesses ?? []);
     setEvaluations(s?.evaluations ?? []);
     setGameStatus(s?.gameStatus ?? "playing");
-    setCurrentGuess("");
+    setCurrentGuess(' '.repeat(WORD_LENGTH));
+    setCursorPos(0);
     setShakeRow(false);
     setRevealRow(null);
     setPendingGuess("");
@@ -192,7 +196,8 @@ export function useEquationState(
       setPendingGuess(guess);
       setPendingEvaluation(evaluation);
       setRevealRow(rowIndex);
-      setCurrentGuess("");
+      setCurrentGuess(' '.repeat(WORD_LENGTH));
+      setCursorPos(0);
 
       setTimeout(() => {
         setRevealRow(null);
@@ -223,18 +228,32 @@ export function useEquationState(
 
   const onKey = useCallback(
     (key: string) => {
+      const pos = cursorPos;  // snapshot to avoid stale-closure in updaters
       if (gameStatus !== "playing") return;
       if (revealRow !== null) return;
 
       const k = normalizeEquationKey(key);
 
       if (k === "Backspace") {
-        setCurrentGuess((g) => g.slice(0, -1));
+        if (currentGuess[pos] !== ' ') {
+          setCurrentGuess((g) => {
+            const chars = g.split('');
+            chars[pos] = ' ';
+            return chars.join('');
+          });
+        } else if (pos > 0) {
+          setCurrentGuess((g) => {
+            const chars = g.split('');
+            chars[pos - 1] = ' ';
+            return chars.join('');
+          });
+          setCursorPos((p) => p - 1);
+        }
         return;
       }
 
       if (k === "Enter") {
-        if (currentGuess.length < WORD_LENGTH) {
+        if (currentGuess.includes(' ')) {
           setShakeRow(true);
           showToast("Not enough characters");
           setTimeout(() => setShakeRow(false), 600);
@@ -251,11 +270,25 @@ export function useEquationState(
         return;
       }
 
-      if (EQUATION_INPUT_CHARS.has(k) && currentGuess.length < WORD_LENGTH) {
-        setCurrentGuess((g) => g + k);
+      if (EQUATION_INPUT_CHARS.has(k)) {
+        setCurrentGuess((g) => {
+          const chars = g.split('');
+          chars[pos] = k;
+          return chars.join('');
+        });
+        setCursorPos((p) => Math.min(p + 1, WORD_LENGTH - 1));
       }
     },
-    [gameStatus, revealRow, currentGuess, showToast, submitGuess]
+    [gameStatus, revealRow, currentGuess, cursorPos, showToast, submitGuess]
+  );
+
+  const onTileClick = useCallback(
+    (index: number) => {
+      if (gameStatus !== "playing") return;
+      if (revealRow !== null) return;
+      setCursorPos(index);
+    },
+    [gameStatus, revealRow]
   );
 
   const keyboardColors = deriveKeyboardColors(guesses, evaluations);
@@ -263,9 +296,10 @@ export function useEquationState(
   return [
     {
       answer, dayNumber, guesses, evaluations, currentGuess,
+      cursorPos,
       gameStatus, shakeRow, revealRow, pendingGuess, pendingEvaluation,
       toast, keyboardColors, isValidating: false,
     },
-    { onKey },
+    { onKey, onTileClick },
   ];
 }
