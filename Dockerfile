@@ -1,4 +1,4 @@
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 
 WORKDIR /app
 
@@ -19,7 +19,7 @@ ENV VITE_CLIENT_ID=$VITE_CLIENT_ID
 RUN npm run build
 
 # ── Runtime image ──────────────────────────────────────────────
-FROM node:20-alpine
+FROM node:24-alpine
 
 # Fonts needed for @napi-rs/canvas text rendering
 RUN apk add --no-cache fontconfig ttf-freefont
